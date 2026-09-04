@@ -1,0 +1,23 @@
+[package]
+name = "yet-another-audio-visualiser"
+version = "0.1.0"
+edition = "2024"
+authors = ["L00_Cyph3r <yet-another-audio-visualiser@loo.sh"]
+
+[dependencies]
+anyhow = { version = "1.0.104" }
+clap = { version = "4.6.6", features = [] }
+egui = { version = "0.36.1", features = ["persistence", "rayon"] }
+eframe = { version = "0.36.1", features = ["persistence"] }
+egui-plotter = { version = "0.6.0", features = ["timechart"] }
+rustfft = { version = "6.4.1", features = [] }
+log = { version = "0.4.34", features = [] }
+env_logger = "0.11.11"
+crossbeam-channel = "0.5.16"
+strum = { version = "0.28.0", features = ["derive"] }
+ron = "0.12.2"
+
+[target.'cfg(windows)'.dependencies]
+cpal = { version = "0.18.2", features = [] }
+[target.'cfg(not(windows))'.dependencies]
+cpal = { version = "0.18.2", features = ["pipewire"] }
