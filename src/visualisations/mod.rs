@@ -1,4 +1,5 @@
 use egui::Vec2;
+use serde::{Deserialize, Serialize};
 use strum::EnumIter;
 
 pub mod equalizer;
@@ -10,7 +11,7 @@ pub trait Visualisation {
     fn default_settings() -> VisualisationSettings;
 }
 
-#[derive(Debug, Copy, Clone, EnumIter, PartialEq)]
+#[derive(Debug, Copy, Clone, EnumIter, PartialEq, Serialize, Deserialize)]
 pub enum VisualisationType {
     Equalizer,
     Waveform,

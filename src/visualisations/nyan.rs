@@ -49,7 +49,7 @@ impl Visualisation for Nyan {
                             / history_size.saturating_sub(1).max(1) as f32;
                     let baseline = rect.top() + band_spacing * (band + 1) as f32;
                     let displacement = snapshot[band].clamp(0.0, 1.0) * wave_height;
-                    if (column as f32 > RAINBOW_BANDS as f32 / 2.0) {
+                    if column as f32 > RAINBOW_BANDS as f32 / 2.0 {
                         Pos2::new(x, baseline + displacement)
                     } else {
                         Pos2::new(x, baseline - displacement)

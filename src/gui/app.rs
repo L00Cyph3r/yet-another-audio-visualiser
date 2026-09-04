@@ -1,10 +1,11 @@
 use crate::analyzer::SpectrumAnalyzer;
+use crate::api::types::{AppCommand, DeviceDto, SettingsDto};
 use crate::capture::{AudioCapture, start_capture};
 use crate::utils::{device_name_format, get_audio_devices};
 use crate::visualisations::{Visualisation, VisualisationSettings, VisualisationType};
 use cpal::traits::DeviceTrait;
-use eframe::Storage;
-use egui::{IdSalt, InnerResponse, Label, WidgetText};
+use crossbeam_channel::Receiver;
+use egui::{IdSalt, InnerResponse, Label};
 use strum::IntoEnumIterator;
 
 pub struct GuiApp {
@@ -15,16 +16,18 @@ pub struct GuiApp {
     error: Option<String>,
     visualisation: VisualisationSettings,
     show_help: bool,
+    command_rx: Receiver<AppCommand>,
 }
 
 impl GuiApp {
-    pub fn new() -> Self {
+    pub fn new(command_rx: Receiver<AppCommand>) -> Self {
         let mut available_devices = get_audio_devices();
         available_devices.sort_by(|a, b| {
-            a.description()
-                .unwrap()
-                .name()
-                .cmp(&b.description().unwrap().name())
+            let desc_a = a.description().ok();
+            let desc_b = b.description().ok();
+            let name_a = desc_a.as_ref().map(|d| d.name()).unwrap_or_default();
+            let name_b = desc_b.as_ref().map(|d| d.name()).unwrap_or_default();
+            name_a.cmp(name_b)
         });
         Self {
             available_devices,
@@ -34,8 +37,90 @@ impl GuiApp {
             error: None,
             visualisation: VisualisationSettings::default(),
             show_help: false,
+            command_rx,
         }
     }
+
+    pub fn get_settings_dto(&self) -> SettingsDto {
+        let active_device = self.device.as_ref().and_then(|d| {
+            d.description().ok().map(|desc| desc.name().to_string())
+        });
+        SettingsDto {
+            visualiser: self.visualisation.visualiser,
+            bands: self.visualisation.bands,
+            gain: self.visualisation.gain,
+            smoothing: self.visualisation.smoothing,
+            band_gap: self.visualisation.band_gap,
+            active_device,
+        }
+    }
+
+    pub fn handle_commands(&mut self) {
+        while let Ok(cmd) = self.command_rx.try_recv() {
+            match cmd {
+                AppCommand::UpdateSettings(patch, respond_to) => {
+                    if let Some(visualiser) = patch.visualiser {
+                        self.visualisation.visualiser = visualiser;
+                    }
+                    if let Some(bands) = patch.bands {
+                        self.visualisation.bands = bands;
+                    }
+                    if let Some(gain) = patch.gain {
+                        self.visualisation.gain = gain;
+                    }
+                    if let Some(smoothing) = patch.smoothing {
+                        self.visualisation.smoothing = smoothing;
+                    }
+                    if let Some(band_gap) = patch.band_gap {
+                        self.visualisation.band_gap = band_gap;
+                    }
+                    if let Some(tx) = respond_to {
+                        let _ = tx.send(self.get_settings_dto());
+                    }
+                }
+                AppCommand::SelectDevice(name, respond_to) => {
+                    let found = self.available_devices.iter().find(|d| {
+                        if let Ok(desc) = d.description() {
+                            desc.name() == name || device_name_format(Some(d)) == name
+                        } else {
+                            false
+                        }
+                    }).cloned();
+
+                    let result = if let Some(dev) = found {
+                        self.device = Some(dev);
+                        self.capture = None;
+                        self.analyzer = None;
+                        self.error = None;
+                        Ok(())
+                    } else {
+                        Err(format!("Device '{}' not found", name))
+                    };
+
+                    if let Some(tx) = respond_to {
+                        let _ = tx.send(result);
+                    }
+                }
+                AppCommand::GetSettings(tx) => {
+                    let _ = tx.send(self.get_settings_dto());
+                }
+                AppCommand::GetDevices(tx) => {
+                    let devices = self.available_devices.iter().filter_map(|d| {
+                        let desc = d.description().ok()?;
+                        if desc.direction() != cpal::DeviceDirection::Input {
+                            return None;
+                        }
+                        Some(DeviceDto {
+                            name: desc.name().to_string(),
+                            formatted_name: device_name_format(Some(d)),
+                        })
+                    }).collect();
+                    let _ = tx.send(devices);
+                }
+            }
+        }
+    }
+
     fn draw_device_selection(&mut self, ui: &mut egui::Ui) {
         let devices = &self.available_devices;
         if self.device.is_none() {
@@ -47,7 +132,7 @@ impl GuiApp {
                 egui::ComboBox::from_id_salt(label_id)
                     .selected_text(device_name_format(self.device.as_ref()))
                     .show_ui(ui, |ui| {
-                        devices.iter().enumerate().for_each(|(i, device)| {
+                        devices.iter().for_each(|device| {
                             if let Ok(description) = device.description() {
                                 if description.direction() != cpal::DeviceDirection::Input {
                                     return;
@@ -64,12 +149,12 @@ impl GuiApp {
         } else {
             ui.horizontal_wrapped(|ui| {
                 let label = Label::new("Audio Input").selectable(false);
-                let label_id = IdSalt::new(label.text());
                 ui.add(label);
                 ui.label(device_name_format(self.device.as_ref()));
             });
         }
     }
+
     fn draw_visualisation_section(
         &mut self,
         ui: &mut egui::Ui,
@@ -92,16 +177,16 @@ impl GuiApp {
                 })
         })
     }
+
     fn draw_help(&mut self, ui: &mut egui::Ui) {
         ui.label("Press Escape to exit.");
     }
 }
 
 impl eframe::App for GuiApp {
-    // fn save(&mut self, storage: &mut dyn Storage) {
-    //     // storage.
-    // }
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.handle_commands();
+
         ui.ctx().input(|i| {
             if i.key_pressed(egui::Key::Escape) {
                 self.device = None;
@@ -125,11 +210,17 @@ impl eframe::App for GuiApp {
             self.draw_visualisation_section(ui);
             if self.device.is_some() && self.capture.is_none() && self.analyzer.is_none() {
                 let device = self.device.clone().unwrap();
-                let capture = start_capture(device).expect("Failed to start audio capture");
-                let analyzer = SpectrumAnalyzer::new(capture.sample_rate);
-
-                self.capture = Some(capture);
-                self.analyzer = Some(analyzer);
+                match start_capture(device) {
+                    Ok(capture) => {
+                        let analyzer = SpectrumAnalyzer::new(capture.sample_rate);
+                        self.capture = Some(capture);
+                        self.analyzer = Some(analyzer);
+                        self.error = None;
+                    }
+                    Err(err) => {
+                        self.error = Some(err.to_string());
+                    }
+                }
             }
 
             if let (Some(capture), Some(analyzer)) = (&self.capture, &mut self.analyzer) {

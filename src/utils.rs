@@ -1,5 +1,5 @@
+use cpal::Device;
 use cpal::traits::{DeviceTrait, HostTrait};
-use cpal::{Device, Devices, Error};
 
 pub fn get_audio_devices() -> Vec<Device> {
     let host = cpal::default_host();
