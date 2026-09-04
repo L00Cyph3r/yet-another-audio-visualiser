@@ -1,10 +1,11 @@
-use crate::analyzer::SpectrumAnalyzer;
+use crate::analyzer::{SpectrumAnalyzer, SpectrumAnalyzerSettings};
 use crate::api::types::{AppCommand, DeviceDto, SettingsDto};
 use crate::capture::{AudioCapture, start_capture};
 use crate::utils::{device_name_format, get_audio_devices};
 use crate::visualisations::{Visualisation, VisualisationSettings, VisualisationType};
 use cpal::traits::DeviceTrait;
 use crossbeam_channel::Receiver;
+use egui::load::DefaultTextureLoader;
 use egui::{IdSalt, InnerResponse, Label};
 use strum::IntoEnumIterator;
 
@@ -42,9 +43,10 @@ impl GuiApp {
     }
 
     pub fn get_settings_dto(&self) -> SettingsDto {
-        let active_device = self.device.as_ref().and_then(|d| {
-            d.description().ok().map(|desc| desc.name().to_string())
-        });
+        let active_device = self
+            .device
+            .as_ref()
+            .and_then(|d| d.description().ok().map(|desc| desc.name().to_string()));
         SettingsDto {
             visualiser: self.visualisation.visualiser,
             bands: self.visualisation.bands,
@@ -79,13 +81,17 @@ impl GuiApp {
                     }
                 }
                 AppCommand::SelectDevice(name, respond_to) => {
-                    let found = self.available_devices.iter().find(|d| {
-                        if let Ok(desc) = d.description() {
-                            desc.name() == name || device_name_format(Some(d)) == name
-                        } else {
-                            false
-                        }
-                    }).cloned();
+                    let found = self
+                        .available_devices
+                        .iter()
+                        .find(|d| {
+                            if let Ok(desc) = d.description() {
+                                desc.name() == name || device_name_format(Some(d)) == name
+                            } else {
+                                false
+                            }
+                        })
+                        .cloned();
 
                     let result = if let Some(dev) = found {
                         self.device = Some(dev);
@@ -105,16 +111,20 @@ impl GuiApp {
                     let _ = tx.send(self.get_settings_dto());
                 }
                 AppCommand::GetDevices(tx) => {
-                    let devices = self.available_devices.iter().filter_map(|d| {
-                        let desc = d.description().ok()?;
-                        if desc.direction() != cpal::DeviceDirection::Input {
-                            return None;
-                        }
-                        Some(DeviceDto {
-                            name: desc.name().to_string(),
-                            formatted_name: device_name_format(Some(d)),
+                    let devices = self
+                        .available_devices
+                        .iter()
+                        .filter_map(|d| {
+                            let desc = d.description().ok()?;
+                            if desc.direction() != cpal::DeviceDirection::Input {
+                                return None;
+                            }
+                            Some(DeviceDto {
+                                name: desc.name().to_string(),
+                                formatted_name: device_name_format(Some(d)),
+                            })
                         })
-                    }).collect();
+                        .collect();
                     let _ = tx.send(devices);
                 }
             }
@@ -212,7 +222,10 @@ impl eframe::App for GuiApp {
                 let device = self.device.clone().unwrap();
                 match start_capture(device) {
                     Ok(capture) => {
-                        let analyzer = SpectrumAnalyzer::new(capture.sample_rate);
+                        let analyzer = SpectrumAnalyzer::new(SpectrumAnalyzerSettings {
+                            sample_rate: capture.sample_rate,
+                            ..SpectrumAnalyzerSettings::default()
+                        });
                         self.capture = Some(capture);
                         self.analyzer = Some(analyzer);
                         self.error = None;

@@ -4,24 +4,47 @@ use std::sync::Arc;
 
 const FFT_SIZE: usize = 2048;
 const NUM_BANDS: usize = 48;
+
+pub struct SpectrumAnalyzerSettings {
+    pub bands: usize,
+    pub gain: f32,
+    pub fft_size: usize,
+    pub sample_rate: u32,
+}
+
+impl Default for SpectrumAnalyzerSettings {
+    fn default() -> Self {
+        Self {
+            bands: NUM_BANDS,
+            gain: 1.0,
+            fft_size: FFT_SIZE,
+            sample_rate: 44100,
+        }
+    }
+}
+
 pub struct SpectrumAnalyzer {
     fft: Arc<dyn rustfft::Fft<f32>>,
     samples: VecDeque<f32>,
     fft_buffer: Vec<Complex32>,
     bands: Vec<f32>,
     sample_rate: u32,
+    fft_size: usize,
+    bands_size: usize,
 }
 
 impl SpectrumAnalyzer {
-    pub fn new(sample_rate: u32) -> Self {
+    pub fn new(settings: SpectrumAnalyzerSettings) -> Self {
         let mut planner = FftPlanner::<f32>::new();
 
         Self {
-            fft: planner.plan_fft_forward(FFT_SIZE),
-            samples: VecDeque::with_capacity(FFT_SIZE),
-            fft_buffer: vec![Complex32::new(0.0, 0.0); FFT_SIZE],
-            bands: vec![0.0; NUM_BANDS],
-            sample_rate,
+            fft: planner.plan_fft_forward(settings.fft_size),
+            samples: VecDeque::with_capacity(settings.fft_size),
+            fft_buffer: vec![Complex32::new(0.0, 0.0); settings.fft_size],
+            bands: vec![0.0; settings.bands],
+            sample_rate: settings.sample_rate,
+            fft_size: settings.fft_size,
+            bands_size: settings.bands,
         }
     }
 
