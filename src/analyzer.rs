@@ -1,5 +1,6 @@
 use rustfft::{FftPlanner, num_complex::Complex32};
 use std::collections::VecDeque;
+use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
 const FFT_SIZE: usize = 2048;
@@ -32,6 +33,19 @@ pub struct SpectrumAnalyzer {
     fft_size: usize,
     bands_size: usize,
 }
+impl Debug for SpectrumAnalyzer {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SpectrumAnalyzer")
+            .field("fft", &self.fft.len())
+            .field("samples", &self.samples.len())
+            .field("fft_buffer", &self.fft_buffer.len())
+            .field("bands", &self.bands.len())
+            .field("fft_size", &self.fft_size)
+            .field("sample_rate", &self.sample_rate)
+            .field("bands_size", &self.bands_size)
+            .finish()
+    }
+}
 
 impl SpectrumAnalyzer {
     pub fn new(settings: SpectrumAnalyzerSettings) -> Self {
@@ -49,7 +63,7 @@ impl SpectrumAnalyzer {
     }
 
     pub fn push_sample(&mut self, sample: f32) {
-        if self.samples.len() == FFT_SIZE {
+        if self.samples.len() == self.fft_size {
             self.samples.pop_front();
         }
 
@@ -57,14 +71,15 @@ impl SpectrumAnalyzer {
     }
 
     pub fn update(&mut self) {
-        if self.samples.len() < FFT_SIZE {
+        if self.samples.len() < self.fft_size {
             return;
         }
 
         // Copy samples into the FFT buffer and apply a Hann window.
         for (i, &sample) in self.samples.iter().enumerate() {
-            let window =
-                0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / (FFT_SIZE - 1) as f32).cos());
+            let window = 0.5
+                * (1.0
+                    - (2.0 * std::f32::consts::PI * i as f32 / (self.fft_size - 1) as f32).cos());
 
             self.fft_buffer[i] = Complex32::new(sample * window, 0.0);
         }
@@ -72,12 +87,12 @@ impl SpectrumAnalyzer {
         self.fft.process(&mut self.fft_buffer);
 
         let nyquist = self.sample_rate as f32 / 2.0;
-        let bin_width = self.sample_rate as f32 / FFT_SIZE as f32;
+        let bin_width = self.sample_rate as f32 / self.fft_size as f32;
 
         // Create logarithmically spaced frequency bands.
-        for band_index in 0..NUM_BANDS {
-            let t0 = band_index as f32 / NUM_BANDS as f32;
-            let t1 = (band_index + 1) as f32 / NUM_BANDS as f32;
+        for band_index in 0..self.bands_size {
+            let t0 = band_index as f32 / self.bands_size as f32;
+            let t1 = (band_index + 1) as f32 / self.bands_size as f32;
 
             let min_frequency = 20.0 * (nyquist / 20.0).powf(t0);
             let max_frequency = 20.0 * (nyquist / 20.0).powf(t1);
@@ -88,7 +103,7 @@ impl SpectrumAnalyzer {
             let mut magnitude_sum = 0.0;
             let mut count = 0;
 
-            for bin in start_bin..=end_bin.min(FFT_SIZE / 2 - 1) {
+            for bin in start_bin..=end_bin.min(self.fft_size / 2 - 1) {
                 magnitude_sum += self.fft_buffer[bin].norm();
                 count += 1;
             }
@@ -100,10 +115,10 @@ impl SpectrumAnalyzer {
             };
 
             // Normalize for the FFT size.
-            let normalized = magnitude / FFT_SIZE as f32;
+            let normalized = magnitude / self.fft_size as f32;
 
             // Convert to decibels.
-            let db = 20.0 * (normalized.max(1e-7)).log10();
+            let db = 20.0 * normalized.max(1e-7).log10();
 
             // Map roughly -80 dB..0 dB onto 0.0..1.0.
             let target = ((db + 80.0) / 80.0).clamp(0.0, 1.0);

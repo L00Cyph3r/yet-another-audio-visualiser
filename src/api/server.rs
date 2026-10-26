@@ -7,9 +7,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use crossbeam_channel::Sender;
 
-use crate::api::types::{
-    AppCommand, DeviceDto, SelectDeviceRequest, SettingsDto, SettingsPatch,
-};
+use crate::api::types::{AppCommand, DeviceDto, SelectDeviceRequest, SettingsDto, SettingsPatch};
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -72,7 +70,11 @@ async fn patch_settings(
     state.egui_ctx.request_repaint();
 
     match tokio::time::timeout(Duration::from_secs(2), rx).await {
-        Ok(Ok(settings)) => Ok(Json(settings)),
+        Ok(Ok(Ok(settings))) => Ok(Json(settings)),
+        Ok(Ok(Err(err_msg))) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": err_msg })),
+        )),
         Ok(Err(_)) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": "Failed to receive response from GUI thread" })),
@@ -167,6 +169,7 @@ pub fn start_api_server(
         .name("api-server".to_string())
         .spawn(move || {
             let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
                 .enable_all()
                 .build()
                 .expect("Failed to build Tokio runtime for API server");
@@ -203,10 +206,9 @@ mod tests {
     fn test_dto_serialization() {
         let settings = SettingsDto {
             visualiser: VisualisationType::Waveform,
-            bands: 32,
             gain: 2.5,
             smoothing: 0.5,
-            band_gap: 4.0,
+            visualiser_settings: Default::default(),
             active_device: Some("Test Device".to_string()),
         };
 
@@ -219,12 +221,51 @@ mod tests {
 
     #[test]
     fn test_patch_deserialization() {
-        let json = r#"{"visualiser":"Equalizer","bands":16}"#;
+        let json = r#"{"visualiser":"Equalizer"}"#;
         let patch: SettingsPatch = serde_json::from_str(json).expect("Deserialization failed");
 
         assert_eq!(patch.visualiser, Some(VisualisationType::Equalizer));
-        assert_eq!(patch.bands, Some(16));
         assert_eq!(patch.gain, None);
+
+        let json_seg = r#"{"visualiser":"SegmentedSpectrumBars"}"#;
+        let patch_seg: SettingsPatch =
+            serde_json::from_str(json_seg).expect("Deserialization failed");
+        assert_eq!(
+            patch_seg.visualiser,
+            Some(VisualisationType::SegmentedSpectrumBars)
+        );
+    }
+    #[test]
+    fn test_patch_with_visualiser_settings_deserialization() {
+        let json = r#"{"visualiser_settings":{"waveform":{"corner_radius":4}}}"#;
+        let patch: SettingsPatch = serde_json::from_str(json).expect("Deserialization failed");
+        let waveform = patch.visualiser_settings.unwrap().waveform.unwrap();
+        assert_eq!(waveform["corner_radius"], 4);
+    }
+
+    /// Sends a raw HTTP request and returns the complete response.
+    async fn http(addr: SocketAddr, method: &str, path: &str, body: &str) -> String {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let request = format!(
+            "{method} {path} HTTP/1.1\r\nHost: {addr}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = String::new();
+        stream.read_to_string(&mut response).await.unwrap();
+        response
+    }
+
+    /// Returns the JSON body of an HTTP response.
+    fn json_body(response: &str) -> serde_json::Value {
+        let body = response
+            .split("\r\n\r\n")
+            .nth(1)
+            .expect("response has a body");
+        // Be lenient about chunked transfer encoding: take everything from the first brace.
+        let start = body.find('{').expect("body contains JSON");
+        let end = body.rfind('}').expect("body contains JSON");
+        serde_json::from_str(&body[start..=end]).expect("valid JSON body")
     }
 
     #[tokio::test]
@@ -269,7 +310,7 @@ mod tests {
 
         // 2. Test PATCH /api/settings
         let mut stream = tokio::net::TcpStream::connect(local_addr).await.unwrap();
-        let body = r#"{"visualiser":"Waveform","bands":64,"gain":1.5}"#;
+        let body = r#"{"visualiser":"Waveform","gain":1.5}"#;
         let request = format!(
             "PATCH /api/settings HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             local_addr,
@@ -282,7 +323,6 @@ mod tests {
         stream.read_to_string(&mut response).await.unwrap();
         assert!(response.contains("200 OK"));
         assert!(response.contains(r#""visualiser":"Waveform""#));
-        assert!(response.contains(r#""bands":64"#));
 
         // 3. Test GET /api/devices
         let mut stream = tokio::net::TcpStream::connect(local_addr).await.unwrap();
@@ -310,6 +350,64 @@ mod tests {
         let mut response = String::new();
         stream.read_to_string(&mut response).await.unwrap();
         assert!(response.contains("404 Not Found"));
+
+        // 5. GET /api/settings exposes the individual settings of every visualisation
+        let response = http(local_addr, "GET", "/api/settings", "").await;
+        assert!(response.contains("200 OK"));
+        let settings = json_body(&response);
+        assert_eq!(
+            settings["visualiser_settings"]["waveform"]["corner_radius"],
+            2
+        );
+        assert_eq!(
+            settings["visualiser_settings"]["segmented_spectrum_bars"]["segment_count"],
+            8
+        );
+
+        // 6. PATCH individual settings: only the mentioned fields change
+        let body = r#"{"visualiser_settings":{"segmented_spectrum_bars":{"segment_count":16,"color_mapping":"Rainbow"},"waveform":{"corner_radius":5}}}"#;
+        let response = http(local_addr, "PATCH", "/api/settings", body).await;
+        assert!(response.contains("200 OK"), "{response}");
+        let settings = json_body(&response);
+        let bars = &settings["visualiser_settings"]["segmented_spectrum_bars"];
+        assert_eq!(bars["segment_count"], 16);
+        assert_eq!(bars["color_mapping"], "Rainbow");
+        assert_eq!(bars["vertical_gap"], 2.0);
+        assert_eq!(
+            settings["visualiser_settings"]["waveform"]["corner_radius"],
+            5
+        );
+        // Earlier, unrelated settings are untouched.
+        assert_eq!(settings["visualiser"], "Waveform");
+
+        // 7. Unknown settings are rejected with 400 and nothing changes
+        let body = r#"{"visualiser_settings":{"waveform":{"corner_radius":9,"bogus":1}}}"#;
+        let response = http(local_addr, "PATCH", "/api/settings", body).await;
+        assert!(response.contains("400 Bad Request"), "{response}");
+        assert!(
+            json_body(&response)["error"]
+                .as_str()
+                .unwrap()
+                .contains("bogus")
+        );
+
+        let response = http(local_addr, "GET", "/api/settings", "").await;
+        let settings = json_body(&response);
+        assert_eq!(
+            settings["visualiser_settings"]["waveform"]["corner_radius"],
+            5
+        );
+
+        // 8. Out-of-range values are clamped instead of breaking the analyser
+        let body = r#"{"gain":-3.0,"visualiser_settings":{"segmented_spectrum_bars":{"segment_count":0}}}"#;
+        let response = http(local_addr, "PATCH", "/api/settings", body).await;
+        assert!(response.contains("200 OK"), "{response}");
+        let settings = json_body(&response);
+        assert_eq!(settings["gain"], 0.0);
+        assert_eq!(
+            settings["visualiser_settings"]["segmented_spectrum_bars"]["segment_count"],
+            1
+        );
 
         let _ = stop_tx.send(());
         let _ = gui_handle.join();

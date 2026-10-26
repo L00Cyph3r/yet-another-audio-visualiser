@@ -1,10 +1,16 @@
-use crate::visualisations::VisualisationType;
+use crate::visualisations::{VisualisationType, VisualiserSettings, VisualiserSettingsPatch};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum AppCommand {
-    UpdateSettings(SettingsPatch, Option<tokio::sync::oneshot::Sender<SettingsDto>>),
-    SelectDevice(String, Option<tokio::sync::oneshot::Sender<Result<(), String>>>),
+    UpdateSettings(
+        SettingsPatch,
+        Option<tokio::sync::oneshot::Sender<Result<SettingsDto, String>>>,
+    ),
+    SelectDevice(
+        String,
+        Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+    ),
     GetSettings(tokio::sync::oneshot::Sender<SettingsDto>),
     GetDevices(tokio::sync::oneshot::Sender<Vec<DeviceDto>>),
 }
@@ -12,10 +18,9 @@ pub enum AppCommand {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SettingsDto {
     pub visualiser: VisualisationType,
-    pub bands: usize,
     pub gain: f32,
     pub smoothing: f32,
-    pub band_gap: f32,
+    pub visualiser_settings: VisualiserSettings,
     pub active_device: Option<String>,
 }
 
@@ -26,12 +31,21 @@ pub struct SettingsPatch {
     pub gain: Option<f32>,
     pub smoothing: Option<f32>,
     pub band_gap: Option<f32>,
+    pub visualiser_settings: Option<VisualiserSettingsPatch>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeviceDto {
     pub name: String,
     pub formatted_name: String,
+    pub supports_input: bool,
+    pub supports_output: bool,
+    pub device_type: String,
+    pub direction: String,
+    pub address: String,
+    pub device_id: String,
+    pub driver: String,
+    pub manufacturer: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
