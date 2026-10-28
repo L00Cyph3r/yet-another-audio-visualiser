@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 const MAX_WINDOW_SIZE: f32 = 8192.0;
 /// Individual settings of the [`Waveform`] visualisation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 #[serde(default)]
 pub struct WaveformSettings {
     pub band_gap: f32,
@@ -74,7 +74,13 @@ impl WaveformSettings {
                 ui.end_row();
 
                 ui.label("Band gap");
-                ui.add(egui::Slider::new(&mut self.band_gap, 0.0..=64.0));
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut self.band_gap)
+                            .range(0.0..=64.0)
+                            .speed(1),
+                    )
+                    .changed();
                 ui.end_row();
 
                 ui.label("Corner radius");
@@ -96,16 +102,14 @@ impl WaveformSettings {
     }
 }
 
-pub(crate) struct Waveform;
+pub(crate) struct Waveform(pub WaveformSettings);
 
 impl Visualisation for Waveform {
     fn draw(&self, ui: &mut Ui, bands: &[f32], settings: &VisualisationSettings) {
-        {
-            let own = &settings.visualiser_settings.waveform;
-            ui.ctx()
-                .send_viewport_cmd(InnerSize(Vec2::new(own.window_width, own.window_height)));
-        }
-        let (rect, _) = ui.allocate_exact_size(settings.window_size, egui::Sense::hover());
+        let own = &self.0;
+        let window_size = Vec2::new(own.window_width, own.window_height);
+        ui.ctx().send_viewport_cmd(InnerSize(window_size));
+        let (rect, _) = ui.allocate_exact_size(window_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
         if bands.is_empty() {
@@ -136,7 +140,7 @@ impl Visualisation for Waveform {
 
     fn default_settings() -> VisualisationSettings {
         VisualisationSettings {
-            visualiser: VisualisationType::Waveform,
+            visualiser: VisualisationType::Waveform(WaveformSettings::default()),
             ..VisualisationSettings::default()
         }
     }

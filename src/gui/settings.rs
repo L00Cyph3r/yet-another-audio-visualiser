@@ -107,6 +107,7 @@ mod tests {
     use super::*;
     use crate::visualisations::VisualisationType;
     use egui::Color32;
+    use crate::visualisations::waveform::WaveformSettings;
 
     struct TempDir(PathBuf);
 
@@ -141,7 +142,7 @@ mod tests {
 
         let mut settings = AppSettings::default();
         settings.device = Some("My Device".to_string());
-        settings.visualisation.visualiser = VisualisationType::Waveform;
+        settings.visualisation.visualiser = VisualisationType::Waveform(WaveformSettings::default());
         settings.visualisation.visualiser_settings.waveform.color = Color32::from_rgb(1, 2, 3);
         settings
             .visualisation

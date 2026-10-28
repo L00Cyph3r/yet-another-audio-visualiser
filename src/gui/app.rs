@@ -150,6 +150,10 @@ impl GuiApp {
 
         let mut visualisation = settings.visualisation;
         visualisation.sanitize();
+        // The stored `visualiser_settings` are what survive a restart, so populate the active
+        // visualisation's tuple from them before rendering.
+        visualisation.load_visualiser_settings();
+        visualisation.sanitize();
 
         let restored_device = settings.device.as_ref().and_then(|wanted| {
             let found = available_devices.iter().find(|d| {
@@ -185,7 +189,7 @@ impl GuiApp {
     pub fn get_settings_dto(&self) -> SettingsDto {
         let active_device = self.device.as_ref().and_then(device_name);
         SettingsDto {
-            visualiser: self.visualisation.visualiser,
+            visualiser: self.visualisation.visualiser.clone(),
             gain: self.visualisation.gain,
             smoothing: self.visualisation.smoothing,
             visualiser_settings: self.visualisation.visualiser_settings.clone(),
@@ -197,8 +201,11 @@ impl GuiApp {
     /// not at all. Values are clamped into their valid range.
     pub fn apply_patch(&mut self, patch: &SettingsPatch) -> Result<(), String> {
         let mut updated = self.visualisation.clone();
-        if let Some(visualiser) = patch.visualiser {
+        if let Some(visualiser) = patch.visualiser.clone() {
             updated.visualiser = visualiser;
+            // Switching visualisation should pick up the persisted settings for that type,
+            // matching what happens when the user switches it in the GUI.
+            updated.load_visualiser_settings();
         }
         if let Some(gain) = patch.gain {
             updated.gain = gain;
@@ -211,8 +218,13 @@ impl GuiApp {
         }
         if let Some(visualiser_patch) = &patch.visualiser_settings {
             updated.visualiser_settings.apply_patch(visualiser_patch)?;
+            // If the patch touched the currently active visualisation, reflect it in its tuple.
+            updated.load_visualiser_settings();
         }
         updated.sanitize();
+
+        // Keep the persisted copy in sync with the active visualisation's tuple.
+        updated.sync_visualiser_settings();
 
         // Only the number of bands affects the analyser; everything else is applied while drawing.
         self.visualisation = updated;
@@ -338,7 +350,8 @@ impl GuiApp {
         &mut self,
         ui: &mut egui::Ui,
     ) -> InnerResponse<InnerResponse<Option<()>>> {
-        ui.horizontal_wrapped(|ui| {
+        let before = self.visualisation.visualiser.clone();
+        let response = ui.horizontal_wrapped(|ui| {
             let label = Label::new("Visualisation").selectable(false);
             let label_id = IdSalt::new(label.text());
             ui.add(label);
@@ -354,7 +367,13 @@ impl GuiApp {
                         );
                     }
                 })
-        })
+        });
+        // When the user switches to another visualisation, instantiate it from the stored
+        // settings for that type rather than from a fresh default.
+        if self.visualisation.visualiser != before {
+            self.visualisation.load_visualiser_settings();
+        }
+        response
     }
 
     /// Draws the editors for the shared settings and for the individual settings of the
@@ -377,18 +396,25 @@ impl GuiApp {
                     });
             });
 
-        let visualiser = self.visualisation.visualiser;
+        let visualiser = &self.visualisation.visualiser;
         egui::CollapsingHeader::new(format!("{visualiser} settings"))
             .id_salt(("visualiser_settings", visualiser.to_string()))
             .default_open(true)
             .show(ui, |ui| {
-                if visualiser.settings_ui(ui, &mut self.visualisation.visualiser_settings) {
+                if self.visualisation.visualiser.settings_ui(ui) {
+                    self.visualisation.visualiser.sanitize();
                     self.visualisation.visualiser_settings.sanitize();
+                    // Persist the unchanged value: write the edited tuple into `visualiser_settings`
+                    // so the change is saved to disk.
+                    self.visualisation.sync_visualiser_settings();
                 }
                 ui.add_space(4.0);
                 if ui.button("Reset to defaults").clicked() {
                     self.visualisation.visualiser_settings =
                         VisualisationSettings::default().visualiser_settings;
+                    // Reset the active visualisation's tuple and keep the persisted copy in sync.
+                    self.visualisation.load_visualiser_settings();
+                    self.visualisation.sync_visualiser_settings();
                 }
             });
 
@@ -396,21 +422,13 @@ impl GuiApp {
             Some(analyzer) => analyzer.bands().len(),
             None => 0,
         };
-        if self.visualisation.visualiser_settings.waveform.bands != bands_before {
-            self.restart_analysis = true;
-        }
-        if self.visualisation.visualiser_settings.equalizer.bands != bands_before {
-            self.restart_analysis = true;
-        }
-        if self
-            .visualisation
-            .visualiser_settings
-            .segmented_spectrum_bars
-            .bands
-            != bands_before
-        {
-            self.restart_analysis = true;
-        }
+        let should_restart = match &self.visualisation.visualiser {
+            VisualisationType::Equalizer(s) => s.bands != bands_before,
+            VisualisationType::Waveform(s) => s.bands != bands_before,
+            VisualisationType::Nyan(s) => false,
+            VisualisationType::SegmentedSpectrumBars(s) => s.bands != bands_before,
+        };
+        self.restart_analysis |= should_restart;
     }
 
     // TODO: Make proper help window

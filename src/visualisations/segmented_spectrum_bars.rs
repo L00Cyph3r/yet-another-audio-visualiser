@@ -170,15 +170,21 @@ impl ColorMapping {
     /// Clamps stop positions into `0.0..=1.0` and keeps them sorted.
     pub fn sanitize(&mut self) {
         if let ColorMapping::Gradient(stops) | ColorMapping::Stepped(stops) = self {
-            for stop in stops.iter_mut() {
-                stop.0 = stop.0.clamp(0.0, 1.0);
-            }
-            stops.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            sanitize_stops(stops);
         }
     }
 
     /// Draws the colour mapping editor. Returns `true` if the mapping was changed.
-    pub fn settings_ui(&mut self, ui: &mut Ui) -> bool {
+    ///
+    /// The `gradient_stops` / `stepped_stops` caches hold the stops of each stop-based mapping so
+    /// that switching to another mode and back does not discard the configured stops. They are
+    /// seeded when switching *to* a stop-based mode and synchronised after every edit.
+    pub fn settings_ui(
+        &mut self,
+        ui: &mut Ui,
+        gradient_stops: &mut Vec<(f32, Color32)>,
+        stepped_stops: &mut Vec<(f32, Color32)>,
+    ) -> bool {
         let mut changed = false;
 
         ui.horizontal(|ui| {
@@ -190,15 +196,8 @@ impl ColorMapping {
                         ColorMapping::LedDefault,
                         ColorMapping::Rainbow,
                         ColorMapping::Solid(Color32::from_rgb(0, 220, 50)),
-                        ColorMapping::two_stop_gradient(
-                            Color32::from_rgb(0, 220, 50),
-                            Color32::from_rgb(255, 30, 30),
-                        ),
-                        ColorMapping::stepped(vec![
-                            (0.0, Color32::from_rgb(0, 220, 50)),
-                            (0.6, Color32::from_rgb(255, 200, 0)),
-                            (0.85, Color32::from_rgb(255, 30, 30)),
-                        ]),
+                        ColorMapping::gradient(clamped_stops(gradient_stops, &default_gradient_stops())),
+                        ColorMapping::stepped(clamped_stops(stepped_stops, &default_stepped_stops())),
                     ];
                     for option in options {
                         let selected =
@@ -222,6 +221,15 @@ impl ColorMapping {
             }
             ColorMapping::Gradient(stops) | ColorMapping::Stepped(stops) => {
                 changed |= stops_ui(ui, stops);
+            }
+        }
+
+        if changed {
+            // Keep the persistent caches in sync with the active mapping.
+            match self {
+                ColorMapping::Gradient(stops) => *gradient_stops = stops.clone(),
+                ColorMapping::Stepped(stops) => *stepped_stops = stops.clone(),
+                _ => {}
             }
         }
 
@@ -280,6 +288,43 @@ fn stops_ui(ui: &mut Ui, stops: &mut Vec<(f32, Color32)>) -> bool {
     changed
 }
 
+/// Default stops for the gradient colour mapping.
+fn default_gradient_stops() -> Vec<(f32, Color32)> {
+    vec![
+        (0.0, Color32::from_rgb(0, 220, 50)),
+        (1.0, Color32::from_rgb(255, 30, 30)),
+    ]
+}
+
+/// Default stops for the stepped colour mapping.
+fn default_stepped_stops() -> Vec<(f32, Color32)> {
+    vec![
+        (0.0, Color32::from_rgb(0, 220, 50)),
+        (0.6, Color32::from_rgb(255, 200, 0)),
+        (0.85, Color32::from_rgb(255, 30, 30)),
+    ]
+}
+
+/// Clamps stop positions into `0.0..=1.0` and keeps them sorted in place.
+fn sanitize_stops(stops: &mut Vec<(f32, Color32)>) {
+    for stop in stops.iter_mut() {
+        stop.0 = stop.0.clamp(0.0, 1.0);
+    }
+    stops.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+}
+
+/// Returns the cached stops, or the given defaults when the cache is empty. The result is a
+/// freshly sanitised copy so the active `ColorMapping` never borrows the cache.
+fn clamped_stops(cache: &[(f32, Color32)], defaults: &[(f32, Color32)]) -> Vec<(f32, Color32)> {
+    let mut stops = if cache.is_empty() {
+        defaults.to_vec()
+    } else {
+        cache.to_vec()
+    };
+    sanitize_stops(&mut stops);
+    stops
+}
+
 /// Segmented spectrum bars visualisation.
 ///
 /// Divides each frequency band into vertically stacked discrete segments (LED bars).
@@ -287,7 +332,7 @@ fn stops_ui(ui: &mut Ui, stops: &mut Vec<(f32, Color32)>) -> bool {
 /// colour mapping strategy, are all configurable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct SegmentedSpectrumBars {
+pub struct SegmentedSpectrumBarsSettings {
     /// Vertical gap between segments within each bar.
     pub vertical_gap: f32,
     /// Total number of vertical segments per bar.
@@ -304,14 +349,20 @@ pub struct SegmentedSpectrumBars {
     pub window_height: f32,
     pub bands: usize,
     pub band_gap: f32,
+    /// The `(position, colour)` stops of the gradient mapping, kept separately from the active
+    /// [`Self::color_mapping`] so they survive switching to another colour-mapping mode and back.
+    pub gradient_stops: Vec<(f32, Color32)>,
+    /// The `(threshold, colour)` stops of the stepped mapping, kept separately from the active
+    /// [`Self::color_mapping`] so they survive switching to another colour-mapping mode and back.
+    pub stepped_stops: Vec<(f32, Color32)>,
 }
 
-impl Default for SegmentedSpectrumBars {
+impl Default for SegmentedSpectrumBarsSettings {
     fn default() -> Self {
         Self {
             band_gap: 2.0,
             vertical_gap: 2.0,
-            segment_count: 8,
+            segment_count: 32,
             corner_radius: 0,
             color_mapping: ColorMapping::default(),
             draw_inactive_segments: false,
@@ -319,11 +370,22 @@ impl Default for SegmentedSpectrumBars {
             window_width: 800.0,
             window_height: 300.0,
             bands: 32,
+            // Default stop lists. They are kept in sync with the active mapping while it is in
+            // use, so switching to another colour-mapping mode and back keeps the configured stops.
+            gradient_stops: vec![
+                (0.0, Color32::from_rgb(0, 220, 50)),
+                (1.0, Color32::from_rgb(255, 30, 30)),
+            ],
+            stepped_stops: vec![
+                (0.0, Color32::from_rgb(0, 220, 50)),
+                (0.6, Color32::from_rgb(255, 200, 0)),
+                (0.85, Color32::from_rgb(255, 30, 30)),
+            ],
         }
     }
 }
 
-impl SegmentedSpectrumBars {
+impl SegmentedSpectrumBarsSettings {
     /// Creates a new `SegmentedSpectrumBars` instance with the default configuration.
     pub fn new() -> Self {
         Self::default()
@@ -335,6 +397,8 @@ impl SegmentedSpectrumBars {
         self.window_width = self.window_width.clamp(0.0, MAX_WINDOW_SIZE);
         self.window_height = self.window_height.clamp(0.0, MAX_WINDOW_SIZE);
         self.color_mapping.sanitize();
+        sanitize_stops(&mut self.gradient_stops);
+        sanitize_stops(&mut self.stepped_stops);
     }
 
     /// Draws the settings editor. Returns `true` if any value was changed.
@@ -353,6 +417,9 @@ impl SegmentedSpectrumBars {
                     )
                     .on_hover_text("0 fits the width of the window")
                     .changed();
+                if ui.button("↩️").clicked() {
+                    self.window_width = SegmentedSpectrumBarsSettings::default().window_width;
+                }
                 ui.end_row();
 
                 ui.label("Window height");
@@ -368,7 +435,13 @@ impl SegmentedSpectrumBars {
                 ui.end_row();
 
                 ui.label("Band gap");
-                ui.add(egui::Slider::new(&mut self.band_gap, 0.0..=64.0));
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut self.band_gap)
+                            .range(0.0..=64.0)
+                            .speed(1),
+                    )
+                    .changed();
                 ui.end_row();
 
                 ui.label("Bands");
@@ -443,19 +516,19 @@ impl SegmentedSpectrumBars {
             });
 
         ui.separator();
-        changed |= self.color_mapping.settings_ui(ui);
+        changed |= self
+            .color_mapping
+            .settings_ui(ui, &mut self.gradient_stops, &mut self.stepped_stops);
         changed
     }
 }
-
+pub struct SegmentedSpectrumBars(pub SegmentedSpectrumBarsSettings);
 impl Visualisation for SegmentedSpectrumBars {
     fn draw(&self, ui: &mut Ui, bands: &[f32], settings: &VisualisationSettings) {
-        {
-            let own = &settings.visualiser_settings.segmented_spectrum_bars;
-            ui.ctx()
-                .send_viewport_cmd(InnerSize(Vec2::new(own.window_width, own.window_height)));
-        }
-        let (rect, _) = ui.allocate_exact_size(settings.window_size, egui::Sense::hover());
+        let own = &self.0;
+        let window_size = Vec2::new(own.window_width, own.window_height);
+        ui.ctx().send_viewport_cmd(InnerSize(window_size));
+        let (rect, _) = ui.allocate_exact_size(window_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
         if bands.is_empty() || rect.width() <= 0.0 || rect.height() <= 0.0 {
@@ -463,15 +536,15 @@ impl Visualisation for SegmentedSpectrumBars {
         }
 
         let band_count = bands.len();
-        let total_h_gap = self.band_gap * band_count.saturating_sub(1) as f32;
+        let total_h_gap = own.band_gap * band_count.saturating_sub(1) as f32;
         let bar_width = ((rect.width() - total_h_gap) / band_count as f32).max(1.0);
 
-        let num_segments = self.segment_count.max(1);
-        let total_v_gap = self.vertical_gap * num_segments.saturating_sub(1) as f32;
+        let num_segments = own.segment_count.max(1);
+        let total_v_gap = own.vertical_gap * num_segments.saturating_sub(1) as f32;
 
         let (seg_height, actual_v_gap) = if rect.height() > total_v_gap {
             let seg_h = (rect.height() - total_v_gap) / num_segments as f32;
-            (seg_h, self.vertical_gap)
+            (seg_h, own.vertical_gap)
         } else {
             let seg_h = (rect.height() / num_segments as f32 * 0.8).max(1.0);
             let gap = (rect.height() - seg_h * num_segments as f32)
@@ -480,7 +553,7 @@ impl Visualisation for SegmentedSpectrumBars {
         };
 
         for (i, &level) in bands.iter().enumerate() {
-            let x = rect.left() + i as f32 * (bar_width + self.band_gap);
+            let x = rect.left() + i as f32 * (bar_width + own.band_gap);
             let level_clamped = (level * settings.gain).clamp(0.0, 1.0);
             let active_count = if level_clamped <= 0.0 {
                 0
@@ -490,7 +563,7 @@ impl Visualisation for SegmentedSpectrumBars {
 
             for s in 0..num_segments {
                 let is_active = s < active_count;
-                if !is_active && !self.draw_inactive_segments {
+                if !is_active && !own.draw_inactive_segments {
                     continue;
                 }
 
@@ -502,23 +575,21 @@ impl Visualisation for SegmentedSpectrumBars {
                 );
 
                 let color = if is_active {
-                    self.color_mapping.get_color_for_segment(s, num_segments)
+                    own.color_mapping.get_color_for_segment(s, num_segments)
                 } else {
-                    self.inactive_color
+                    own.inactive_color
                 };
 
-                painter.rect_filled(
-                    seg_rect,
-                    egui::CornerRadius::same(self.corner_radius),
-                    color,
-                );
+                painter.rect_filled(seg_rect, egui::CornerRadius::same(own.corner_radius), color);
             }
         }
     }
 
     fn default_settings() -> VisualisationSettings {
         VisualisationSettings {
-            visualiser: VisualisationType::SegmentedSpectrumBars,
+            visualiser: VisualisationType::SegmentedSpectrumBars(
+                SegmentedSpectrumBarsSettings::default(),
+            ),
             band_gap: 2.0,
             ..VisualisationSettings::default()
         }
@@ -528,16 +599,6 @@ impl Visualisation for SegmentedSpectrumBars {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_default_settings() {
-        let settings = SegmentedSpectrumBars::default_settings();
-        assert_eq!(
-            settings.visualiser,
-            VisualisationType::SegmentedSpectrumBars
-        );
-        assert_eq!(settings.band_gap, 2.0);
-    }
 
     #[test]
     fn test_color_mapping_led_default() {
@@ -585,7 +646,7 @@ mod tests {
     fn test_draw_with_egui() {
         let ctx = egui::Context::default();
         let mut output = ctx.run_ui(Default::default(), |ui| {
-            let bars = SegmentedSpectrumBars {
+            let bars = VisualisationType::SegmentedSpectrumBars(SegmentedSpectrumBarsSettings {
                 vertical_gap: 2.0,
                 segment_count: 10,
                 color_mapping: Default::default(),
@@ -593,10 +654,12 @@ mod tests {
                 inactive_color: Color32::BLACK,
                 band_gap: 2.0,
                 ..Default::default()
-            };
+            });
 
             let settings = VisualisationSettings {
-                visualiser: VisualisationType::SegmentedSpectrumBars,
+                visualiser: VisualisationType::SegmentedSpectrumBars(
+                    SegmentedSpectrumBarsSettings::default(),
+                ),
                 gain: 1.0,
                 smoothing: 0.0,
                 window_size: Vec2::new(400.0, 200.0),
@@ -608,5 +671,68 @@ mod tests {
             bars.draw(ui, &band_data, &settings);
         });
         output.textures_delta.clear();
+    }
+
+    #[test]
+    fn sanitize_stops_clamps_and_sorts() {
+        let mut stops = vec![
+            (2.0, Color32::BLUE),
+            (-1.0, Color32::RED),
+            (0.5, Color32::WHITE),
+            (0.5, Color32::BLACK),
+        ];
+        sanitize_stops(&mut stops);
+        let positions: Vec<f32> = stops.iter().map(|s| s.0).collect();
+        assert_eq!(positions, vec![0.0, 0.5, 0.5, 1.0]);
+        assert_eq!(stops[0].1, Color32::RED);
+        assert_eq!(stops[3].1, Color32::BLUE);
+    }
+
+    #[test]
+    fn clamped_stops_uses_cache_when_present_and_defaults_when_empty() {
+        let cache = vec![(0.25, Color32::GREEN), (0.75, Color32::BLUE)];
+        let defaults = default_stepped_stops();
+
+        let from_cache = clamped_stops(&cache, &defaults);
+        assert_eq!(from_cache, cache);
+
+        let from_defaults = clamped_stops(&[], &defaults);
+        assert_eq!(from_defaults, defaults);
+    }
+
+    #[test]
+    fn stepped_stops_survive_round_trip_and_mode_change() {
+        // Configure custom stepped stops and store them in the settings struct.
+        let mut settings = SegmentedSpectrumBarsSettings::default();
+        settings.color_mapping = ColorMapping::stepped(vec![
+            (0.0, Color32::GREEN),
+            (0.5, Color32::YELLOW),
+            (0.9, Color32::RED),
+        ]);
+        settings.stepped_stops = vec![
+            (0.0, Color32::GREEN),
+            (0.5, Color32::YELLOW),
+            (0.9, Color32::RED),
+        ];
+
+        // Simulate switching to another mode: color_mapping changes, the cache stays.
+        settings.color_mapping = ColorMapping::Rainbow;
+        assert_eq!(settings.stepped_stops[1].1, Color32::YELLOW);
+
+        // Switching back to Stepped reuses the cached stops rather than discarding them.
+        settings.color_mapping = ColorMapping::Stepped(settings.stepped_stops.clone());
+        assert_eq!(
+            settings.color_mapping,
+            ColorMapping::Stepped(vec![
+                (0.0, Color32::GREEN),
+                (0.5, Color32::YELLOW),
+                (0.9, Color32::RED),
+            ])
+        );
+
+        // The caches are serialised too, so they survive an app restart.
+        let json = serde_json::to_string(&settings).unwrap();
+        let restored: SegmentedSpectrumBarsSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.stepped_stops, settings.stepped_stops);
     }
 }

@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 const MAX_WINDOW_SIZE: f32 = 8192.0;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct EqualizerSettings {
     pub bands: usize,
@@ -71,7 +71,13 @@ impl EqualizerSettings {
                 ui.end_row();
 
                 ui.label("Band gap");
-                ui.add(egui::Slider::new(&mut self.band_gap, 0.0..=64.0));
+                changed |= ui
+                    .add(
+                        egui::DragValue::new(&mut self.band_gap)
+                            .range(0.0..=64.0)
+                            .speed(1),
+                    )
+                    .changed();
                 ui.end_row();
 
                 ui.label("Bands");
@@ -106,23 +112,20 @@ impl EqualizerSettings {
     }
 }
 
-pub(crate) struct Equalizer;
+pub(crate) struct Equalizer(pub EqualizerSettings);
 
 impl Visualisation for Equalizer {
     fn draw(&self, ui: &mut Ui, bands: &[f32], settings: &VisualisationSettings) {
-        {
-            let own = &settings.visualiser_settings.equalizer;
-            ui.ctx()
-                .send_viewport_cmd(InnerSize(Vec2::new(own.window_width, own.window_height)));
-        }
-        let (rect, _) = ui.allocate_exact_size(settings.window_size, egui::Sense::hover());
+        let own = &self.0;
+        let window_size = Vec2::new(own.window_width, own.window_height);
+        ui.ctx().send_viewport_cmd(InnerSize(window_size));
+        let (rect, _) = ui.allocate_exact_size(window_size, egui::Sense::hover());
+        // let (rect, _) = ui.allocate_exact_size(settings.window_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
         if bands.is_empty() {
             return;
         }
-
-        let own = &settings.visualiser_settings.equalizer;
         let total_gap = settings.band_gap * bands.len().saturating_sub(1) as f32;
         let bar_width = ((rect.width() - total_gap) / bands.len() as f32).max(1.0);
 
@@ -146,7 +149,7 @@ impl Visualisation for Equalizer {
 
     fn default_settings() -> VisualisationSettings {
         VisualisationSettings {
-            visualiser: VisualisationType::Equalizer,
+            visualiser: VisualisationType::Equalizer(EqualizerSettings::default()),
             ..VisualisationSettings::default()
         }
     }

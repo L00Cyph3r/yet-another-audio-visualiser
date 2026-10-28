@@ -201,11 +201,14 @@ mod tests {
     use crate::gui::app::GuiApp;
     use crate::visualisations::VisualisationType;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use crate::visualisations::equalizer::EqualizerSettings;
+    use crate::visualisations::segmented_spectrum_bars::SegmentedSpectrumBarsSettings;
+    use crate::visualisations::waveform::WaveformSettings;
 
     #[test]
     fn test_dto_serialization() {
         let settings = SettingsDto {
-            visualiser: VisualisationType::Waveform,
+            visualiser: VisualisationType::Waveform(WaveformSettings::default()),
             gain: 2.5,
             smoothing: 0.5,
             visualiser_settings: Default::default(),
@@ -224,7 +227,7 @@ mod tests {
         let json = r#"{"visualiser":"Equalizer"}"#;
         let patch: SettingsPatch = serde_json::from_str(json).expect("Deserialization failed");
 
-        assert_eq!(patch.visualiser, Some(VisualisationType::Equalizer));
+        assert_eq!(patch.visualiser, Some(VisualisationType::Equalizer(EqualizerSettings::default())));
         assert_eq!(patch.gain, None);
 
         let json_seg = r#"{"visualiser":"SegmentedSpectrumBars"}"#;
@@ -232,7 +235,7 @@ mod tests {
             serde_json::from_str(json_seg).expect("Deserialization failed");
         assert_eq!(
             patch_seg.visualiser,
-            Some(VisualisationType::SegmentedSpectrumBars)
+            Some(VisualisationType::SegmentedSpectrumBars(SegmentedSpectrumBarsSettings::default()))
         );
     }
     #[test]
@@ -361,7 +364,7 @@ mod tests {
         );
         assert_eq!(
             settings["visualiser_settings"]["segmented_spectrum_bars"]["segment_count"],
-            8
+            32
         );
 
         // 6. PATCH individual settings: only the mentioned fields change

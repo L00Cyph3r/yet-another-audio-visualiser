@@ -38,7 +38,7 @@ const RAINBOW: [Color32; RAINBOW_BANDS] = [
 ];
 
 /// Individual settings of the [`Nyan`] visualisation.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Copy)]
 #[serde(default)]
 pub struct NyanSettings {
     pub amplitude_factor: f32,
@@ -215,12 +215,12 @@ impl Trail {
     }
 }
 
-pub(crate) struct Nyan;
+pub(crate) struct Nyan(pub NyanSettings);
 
 impl Visualisation for Nyan {
     fn draw(&self, ui: &mut Ui, bands: &[f32], settings: &VisualisationSettings) {
         let (window, _) = ui.allocate_exact_size(settings.window_size, egui::Sense::hover());
-        let own = &settings.visualiser_settings.nyan;
+        let own = &self.0;
         ui.ctx()
             .send_viewport_cmd(InnerSize(Vec2::new(own.window_width, own.window_height)));
         let rect = own.visualisation_area(window);
@@ -298,7 +298,7 @@ impl Visualisation for Nyan {
 
     fn default_settings() -> VisualisationSettings {
         VisualisationSettings {
-            visualiser: VisualisationType::Nyan,
+            visualiser: VisualisationType::Nyan(NyanSettings::default()),
             band_gap: 0.0,
             ..VisualisationSettings::default()
         }
@@ -568,7 +568,7 @@ mod tests {
         let ctx = egui::Context::default();
         for speed in [0.0, 300.0] {
             let mut settings = VisualisationSettings {
-                visualiser: VisualisationType::Nyan,
+                visualiser: VisualisationType::Nyan(NyanSettings::default()),
                 window_size: Vec2::new(600.0, 300.0),
                 ..VisualisationSettings::default()
             };
@@ -576,7 +576,7 @@ mod tests {
             settings.visualiser_settings.nyan.window_width = if speed > 0.0 { 300.0 } else { 0.0 };
             for _ in 0..3 {
                 let mut output = ctx.run_ui(Default::default(), |ui| {
-                    Nyan.draw(ui, &[0.1, 0.5, 0.9, 0.3, 0.7, 0.2, 0.4], &settings);
+                    Nyan(NyanSettings::default()).draw(ui, &[0.1, 0.5, 0.9, 0.3, 0.7, 0.2, 0.4], &settings);
                 });
                 output.textures_delta.clear();
             }
