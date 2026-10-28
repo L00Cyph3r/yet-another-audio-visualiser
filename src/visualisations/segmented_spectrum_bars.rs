@@ -9,7 +9,7 @@ const MAX_SEGMENTS: usize = 64;
 /// Upper bound for gaps (in points).
 const MAX_GAP: f32 = 64.0;
 
-const MAX_WINDOW_SIZE: f32 = 9999.0;
+const MAX_WINDOW_SIZE: f32 = 8192.0;
 /// Colour mapping strategy for the vertical segments in a segmented spectrum bar.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ColorMapping {

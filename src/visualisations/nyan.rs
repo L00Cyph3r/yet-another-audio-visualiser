@@ -25,7 +25,7 @@ const MAX_AMPLITUDE_FACTOR: f32 = 100.0;
 const MAX_LINE_WIDTH: f32 = 200.0;
 const MAX_LINE_GAP: f32 = 100.0;
 const MAX_SPEED: f32 = 2000.0;
-const MAX_WINDOW_SIZE: f32 = 9999.0;
+const MAX_WINDOW_SIZE: f32 = 8192.0;
 
 /// The classic rainbow, from the top line to the bottom line.
 const RAINBOW: [Color32; RAINBOW_BANDS] = [

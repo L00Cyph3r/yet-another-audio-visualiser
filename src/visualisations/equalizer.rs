@@ -4,7 +4,7 @@ use egui::ViewportCommand::InnerSize;
 use egui::{Color32, Ui};
 use serde::{Deserialize, Serialize};
 
-const MAX_WINDOW_SIZE: f32 = 9999.0;
+const MAX_WINDOW_SIZE: f32 = 8192.0;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
