@@ -15,6 +15,12 @@ use std::net::SocketAddr;
 
 fn main() -> eframe::Result {
     env_logger::init();
+    let mut sentry_options = sentry::ClientOptions::default();
+    sentry_options.release = sentry::release_name!();
+    let _sentry_guard = sentry::init((
+        "https://99b74881be00737427c1eed3f5104cf1@o4507225498845184.ingest.de.sentry.io/4512334762147920",
+        sentry_options,
+    ));
 
     let (command_tx, command_rx) = crossbeam_channel::unbounded();
 
