@@ -1,0 +1,188 @@
+name: Release
+
+on:
+  push:
+    # Building on every commit gives early feedback; the release is only published for tags.
+    branches:
+      - master
+      - main
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish the release for (e.g. v0.3.0). The tag must exist on the branch being built.'
+        required: false
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+  # Binary / crate name, used to locate the built executable.
+  PACKAGE: yet-another-audio-visualiser
+
+# Needed to attach artifacts to the GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-14
+          - ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # eframe / egui, cpal (ALSA + PipeWire) and sentry (OpenSSL via reqwest)
+      # all need system libraries to build on Linux.
+      - name: Install Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev \
+            libxkbcommon-dev \
+            libxcb-render0-dev \
+            libxcb-shape0-dev \
+            libxcb-xfixes0-dev \
+            libwayland-dev \
+            libssl-dev \
+            libgtk-3-dev \
+            clang \
+            libclang-dev
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Run tests
+        run: cargo test --release --locked
+
+      # Compute the version (without a leading 'v') for file names.
+      - name: Determine release version
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.tag }}" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $pkg = "${{ env.PACKAGE }}"
+          $ver = "${{ steps.version.outputs.version }}"
+          New-Item -ItemType Directory -Force staging | Out-Null
+          Copy-Item "target/release/${pkg}.exe" "staging/${pkg}.exe"
+          Push-Location staging
+          try {
+            Compress-Archive -Path "${pkg}.exe" -DestinationPath "../${pkg}-${ver}-windows.zip" -Force
+          } finally {
+            Pop-Location
+          }
+          Get-FileHash "${pkg}-${ver}-windows.zip" -Algorithm SHA256 | ForEach-Object { $_.Hash } | Set-Content "${pkg}-${ver}-windows.zip.sha256"
+
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          pkg="${{ env.PACKAGE }}"
+          ver="${{ steps.version.outputs.version }}"
+          mkdir -p "staging/${pkg}.app/Contents/MacOS"
+          cp "target/release/${pkg}" "staging/${pkg}.app/Contents/MacOS/${pkg}"
+          # Build the .app bundle's Info.plist from the committed template.
+          sed -e "s/__PACKAGE__/${pkg}/g" -e "s/__VERSION__/${ver}/g" \
+            .github/release/Info.plist > "staging/${pkg}.app/Contents/Info.plist"
+          (cd staging && tar -czf "../${pkg}-${ver}-macos.tar.gz" "${pkg}.app")
+          shasum -a 256 "${pkg}-${ver}-macos.tar.gz" | awk '{print $1}' > "${pkg}-${ver}-macos.tar.gz.sha256"
+
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          pkg="${{ env.PACKAGE }}"
+          ver="${{ steps.version.outputs.version }}"
+          mkdir -p staging
+          cp "target/release/${pkg}" "staging/${pkg}"
+          tar -C staging -czf "${pkg}-${ver}-linux.tar.gz" "${pkg}"
+          sha256sum "${pkg}-${ver}-linux.tar.gz" | awk '{print $1}' > "${pkg}-${ver}-linux.tar.gz.sha256"
+
+      # Optional convenience package. A failure here does not block the release.
+      - name: Build Debian package
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          cargo install cargo-deb
+          cargo deb --no-strip --output="${{ env.PACKAGE }}-${{ steps.version.outputs.version }}-linux.deb"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ runner.os }}-release
+          path: |
+            ${{ env.PACKAGE }}-*.zip
+            ${{ env.PACKAGE }}-*.tar.gz
+            ${{ env.PACKAGE }}-*.deb
+            ${{ env.PACKAGE }}-*.sha256
+          if-no-files-found: error
+
+  # Combine all platform artifacts and publish them to the GitHub release.
+  # This runs only when every build job has succeeded, and only publishes when the
+  # resolved tag looks like a version tag (e.g. "v0.3.0").
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Determine release tag
+        id: version
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ github.event.inputs.tag }}" ]]; then
+            TAG="${{ github.event.inputs.tag }}"
+          else
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(steps.version.outputs.tag, 'v')
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body: |
+            Pre-built binaries for Windows, macOS and Linux. See the checksum (`.sha256`) file
+            for each artifact to verify its integrity.
+
+            > On macOS the app is not code-signed, so macOS may warn you about an "unidentified
+            > developer" the first time you open it. Right-click the app and choose "Open" to
+            > launch it.
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: dist/**/*

@@ -3,6 +3,9 @@ name = "yet-another-audio-visualiser"
 version = "0.2.0"
 edition = "2024"
 authors = ["L00_Cyph3r <yet-another-audio-visualiser@loo.sh"]
+description = "A yet another audio visualiser with GUI and HTTP controls"
+license = "MIT"
+repository = "https://github.com/L00Cyph3r/yet-another-audio-visualiser"
 
 [dependencies]
 anyhow = { version = "1.0.104" }
