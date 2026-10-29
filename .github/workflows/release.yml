@@ -33,8 +33,12 @@ jobs:
       matrix:
         os:
           - windows-latest
-          - macos-14
-          - ubuntu-22.04
+          - macos-latest
+          # Ubuntu 24.04 (or newer) is required: the crate's cpal/pipewire backend uses the SPA
+          # bindings from libspa 0.10.1, which need PipeWire >= 1.0. Ubuntu 22.04 only ships
+          # PipeWire 0.3.48 and fails to build libspa (missing spa_video_info_raw.flags, etc.).
+          # See https://github.com/pop-os/cosmic-epoch/issues/280
+          - ubuntu-24.04
 
     steps:
       - name: Checkout
@@ -48,6 +52,11 @@ jobs:
 
       # eframe / egui, cpal (ALSA + PipeWire) and sentry (OpenSSL via reqwest)
       # all need system libraries to build on Linux.
+      #
+      # Note: cpal's pipewire backend builds the pipewire/libspa Rust crates, which generate
+      # bindings from the *system* PipeWire headers. Those crates (libspa 0.10.x) require
+      # PipeWire >= 1.0, so the runner must be Ubuntu 24.04+ (Ubuntu 22.04's PipeWire 0.3.48
+      # is too old and fails to compile libspa).
       - name: Install Linux system dependencies
         if: runner.os == 'Linux'
         run: |
