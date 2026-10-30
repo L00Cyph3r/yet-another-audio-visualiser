@@ -46,6 +46,32 @@ fn device_name(device: &Device) -> Option<String> {
     device.description().ok().map(|d| d.name().to_string())
 }
 
+/// Makes the whole visualisation window a drag handle, so that pressing the left mouse button
+/// anywhere in it moves the native window — the same gesture a title bar offers.
+///
+/// The visualisation window has no other interactive widgets, so its entire surface can be used
+/// for this. The area is registered with [`Ui::interact`] rather than allocated, because the
+/// visualisation itself allocates the available space for drawing.
+///
+/// [`Sense::DRAG`] is used instead of [`Sense::click_and_drag`] on purpose: a drag-only widget
+/// starts the drag on the same frame the button goes down (no movement threshold to wait for),
+/// and it is not focusable, so it cannot steal keyboard focus from the main window.
+///
+/// Returns `true` if a window drag was started this frame.
+fn start_window_drag_on_press(ui: &mut egui::Ui) -> bool {
+    let response = ui.interact(
+        ui.max_rect(),
+        Id::unique("visualisation-window-drag"),
+        Sense::DRAG,
+    );
+    // Only the left button moves the window, matching what the platform expects of `StartDrag`.
+    let started = response.drag_started_by(egui::PointerButton::Primary);
+    if started {
+        ui.ctx().send_viewport_cmd(StartDrag);
+    }
+    started
+}
+
 impl GuiApp {
     pub(crate) fn set_device(&mut self, device: Option<Device>) {
         self.restart_capture = device.is_some();
@@ -539,6 +565,9 @@ impl eframe::App for GuiApp {
                         .with_inner_size([1024.0, 512.0]),
                     |ui, class| {
                         if class == egui::ViewportClass::Immediate {
+                            // The window has no interactive widgets, so the whole surface can be
+                            // used to move it around.
+                            start_window_drag_on_press(ui);
                             self.visualisation.window_size = ui.available_size();
                             self.visualisation.visualiser.draw(
                                 ui,
@@ -560,5 +589,140 @@ impl eframe::App for GuiApp {
         if self.dirty_since.is_some() {
             self.save_settings();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The window the visualisation is drawn into, in points.
+    fn screen_rect() -> egui::Rect {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0))
+    }
+
+    /// Runs a single egui pass over [`start_window_drag_on_press`] with the given input events and
+    /// returns the viewport commands egui emitted for the window.
+    fn run_pass(ctx: &egui::Context, events: Vec<egui::Event>) -> Vec<egui::ViewportCommand> {
+        let input = egui::RawInput {
+            screen_rect: Some(screen_rect()),
+            events,
+            ..Default::default()
+        };
+        let output = ctx.run_ui(input, |ui| {
+            start_window_drag_on_press(ui);
+        });
+
+        let commands = output
+            .viewport_output
+            .get(&egui::ViewportId::ROOT)
+            .map_or_else(Vec::new, |viewport| viewport.commands.clone());
+        // `FullOutput` debug-asserts when dropped with unapplied texture deltas.
+        output.drop_without_applying_deltas();
+        commands
+    }
+
+    fn button_event(pos: egui::Pos2, button: egui::PointerButton, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        }
+    }
+
+    /// Registers the drag area with one pass, so that egui can hit-test against it afterwards.
+    fn register_drag_area(ctx: &egui::Context) {
+        run_pass(ctx, Vec::new());
+    }
+
+    #[test]
+    fn press_starts_a_window_drag() {
+        let ctx = egui::Context::default();
+        let pos = screen_rect().center();
+        register_drag_area(&ctx);
+
+        let commands = run_pass(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                button_event(pos, egui::PointerButton::Primary, true),
+            ],
+        );
+
+        assert!(
+            commands.contains(&StartDrag),
+            "expected StartDrag, got {commands:?}"
+        );
+    }
+
+    #[test]
+    fn hover_without_press_does_not_start_a_window_drag() {
+        let ctx = egui::Context::default();
+        let pos = screen_rect().center();
+        register_drag_area(&ctx);
+
+        let commands = run_pass(&ctx, vec![egui::Event::PointerMoved(pos)]);
+
+        assert!(!commands.contains(&StartDrag), "got {commands:?}");
+    }
+
+    #[test]
+    fn non_primary_press_does_not_start_a_window_drag() {
+        let ctx = egui::Context::default();
+        let pos = screen_rect().center();
+        register_drag_area(&ctx);
+
+        let commands = run_pass(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(pos),
+                button_event(pos, egui::PointerButton::Secondary, true),
+            ],
+        );
+
+        assert!(!commands.contains(&StartDrag), "got {commands:?}");
+    }
+
+    #[test]
+    fn window_drag_starts_again_after_the_button_is_released() {
+        let ctx = egui::Context::default();
+        let start = screen_rect().center();
+        let moved = start + egui::vec2(40.0, 25.0);
+        register_drag_area(&ctx);
+
+        // Press: the window starts moving.
+        let pressed = run_pass(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(start),
+                button_event(start, egui::PointerButton::Primary, true),
+            ],
+        );
+        assert!(pressed.contains(&StartDrag), "got {pressed:?}");
+
+        // Moving while held must not ask to start dragging again.
+        let dragging = run_pass(&ctx, vec![egui::Event::PointerMoved(moved)]);
+        assert!(!dragging.contains(&StartDrag), "got {dragging:?}");
+
+        // Release: the OS move loop has ended.
+        let released = run_pass(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(moved),
+                button_event(moved, egui::PointerButton::Primary, false),
+            ],
+        );
+        assert!(!released.contains(&StartDrag), "got {released:?}");
+
+        // A second press on the same spot must move the window again.
+        let pressed_again = run_pass(
+            &ctx,
+            vec![
+                egui::Event::PointerMoved(moved),
+                button_event(moved, egui::PointerButton::Primary, true),
+            ],
+        );
+        assert!(pressed_again.contains(&StartDrag), "got {pressed_again:?}");
     }
 }
