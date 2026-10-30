@@ -13,6 +13,15 @@ use log::info;
 use std::net::SocketAddr;
 use sysinfo::{ProcessRefreshKind, RefreshKind};
 
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct CommandLineOptions {
+    #[clap(short, long, default_value = "127.0.0.1")]
+    host: String,
+    #[clap(short, long, default_value = "3000")]
+    port: u16,
+}
+
 fn maybe_free_from_console() {
     #[cfg(target_os = "windows")]
     {
@@ -38,10 +47,12 @@ fn maybe_free_from_console() {
 }
 
 fn main() -> eframe::Result {
-    env_logger::init();
-    let mut sentry_options = sentry::ClientOptions::default();
-    sentry_options.release = sentry::release_name!();
     maybe_free_from_console();
+    env_logger::Builder::new()
+        .filter_level(log::LevelFilter::Info)
+        .filter_module(release_name!().unwrap().as_str(), log::LevelFilter::Debug)
+        .init();
+
     let _sentry_guard = sentry::init((
         "https://99b74881be00737427c1eed3f5104cf1@o4507225498845184.ingest.de.sentry.io/4512334762147920",
         sentry_options,

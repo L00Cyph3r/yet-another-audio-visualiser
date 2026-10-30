@@ -8,6 +8,8 @@ use cpal::Device;
 use cpal::traits::DeviceTrait;
 use crossbeam_channel::Receiver;
 use egui::{IdSalt, InnerResponse, Label};
+use egui::ViewportCommand::StartDrag;
+use egui::{Id, IdSalt, InnerResponse, Label, Sense};
 use log::{debug, error, info, warn};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
