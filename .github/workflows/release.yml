@@ -5,7 +5,6 @@ on:
     # Building on every commit gives early feedback; the release is only published for tags.
     branches:
       - master
-      - main
     paths:
       - .github
       - assets
@@ -32,19 +31,28 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.suffix }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - macos-latest
+        # Each entry pairs a runner with the OS/architecture suffix used in the artifact file
+        # names, so the downloads in a release are unambiguous (and unique across runners).
+        include:
+          - os: windows-latest
+            suffix: windows-x86_64
+          # macOS is built as a single universal binary (arm64 + x86_64) on one runner, so there
+          # is only one macOS artifact that runs natively on both Apple Silicon and Intel Macs.
+          - os: macos-26
+            suffix: macos-universal
           # Ubuntu 24.04 (or newer) is required: the crate's cpal/pipewire backend uses the SPA
           # bindings from libspa 0.10.1, which need PipeWire >= 1.0. Ubuntu 22.04 only ships
           # PipeWire 0.3.48 and fails to build libspa (missing spa_video_info_raw.flags, etc.).
           # See https://github.com/pop-os/cosmic-epoch/issues/280
-          - ubuntu-24.04
+          - os: ubuntu-24.04
+            suffix: linux-x86_64
+          - os: ubuntu-24.04-arm
+            suffix: linux-arm64
 
     steps:
       - name: Checkout
@@ -52,6 +60,11 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      # The universal macOS binary needs both architectures; the host toolchain only ships arm64.
+      - name: Add macOS x86_64 target
+        if: runner.os == 'macOS'
+        run: rustup target add x86_64-apple-darwin
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
@@ -82,11 +95,28 @@ jobs:
             clang \
             libclang-dev
 
+      # Native build. On macOS this produces the arm64 binary that the universal build is
+      # combined with below; the resulting file is overwritten by the universal one.
       - name: Build release binary
         run: cargo build --release --locked
 
       - name: Run tests
         run: cargo test --release --locked
+
+      # Build the Intel slice and merge it with the native (arm64) slice into one universal
+      # binary, so a single macOS download runs natively on both Apple Silicon and Intel Macs.
+      - name: Build universal macOS binary
+        if: runner.os == 'macOS'
+        run: |
+          pkg="${{ env.PACKAGE }}"
+          cargo build --release --locked --target x86_64-apple-darwin
+          # Write to a temporary file first: the destination is also one of the inputs.
+          lipo -create \
+            "target/release/${pkg}" \
+            "target/x86_64-apple-darwin/release/${pkg}" \
+            -output "target/release/${pkg}.universal"
+          mv "target/release/${pkg}.universal" "target/release/${pkg}"
+          lipo -info "target/release/${pkg}"
 
       # Compute the version (without a leading 'v') for file names.
       - name: Determine release version
@@ -106,15 +136,18 @@ jobs:
         run: |
           $pkg = "${{ env.PACKAGE }}"
           $ver = "${{ steps.version.outputs.version }}"
+          $suffix = "${{ matrix.suffix }}"
           New-Item -ItemType Directory -Force staging | Out-Null
           Copy-Item "target/release/${pkg}.exe" "staging/${pkg}.exe"
           Push-Location staging
           try {
-            Compress-Archive -Path "${pkg}.exe" -DestinationPath "../${pkg}-${ver}-windows.zip" -Force
+            Compress-Archive -Path "${pkg}.exe" -DestinationPath "../${pkg}-${ver}-${suffix}.zip" -Force
           } finally {
             Pop-Location
           }
-          Get-FileHash "${pkg}-${ver}-windows.zip" -Algorithm SHA256 | ForEach-Object { $_.Hash } | Set-Content "${pkg}-${ver}-windows.zip.sha256"
+          $archive = "${pkg}-${ver}-${suffix}.zip"
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+          "$hash  $archive" | Set-Content "${archive}.sha256"
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
@@ -122,13 +155,14 @@ jobs:
         run: |
           pkg="${{ env.PACKAGE }}"
           ver="${{ steps.version.outputs.version }}"
+          suffix="${{ matrix.suffix }}"
           mkdir -p "staging/${pkg}.app/Contents/MacOS"
           cp "target/release/${pkg}" "staging/${pkg}.app/Contents/MacOS/${pkg}"
           # Build the .app bundle's Info.plist from the committed template.
           sed -e "s/__PACKAGE__/${pkg}/g" -e "s/__VERSION__/${ver}/g" \
             .github/release/Info.plist > "staging/${pkg}.app/Contents/Info.plist"
-          (cd staging && tar -czf "../${pkg}-${ver}-macos.tar.gz" "${pkg}.app")
-          shasum -a 256 "${pkg}-${ver}-macos.tar.gz" | awk '{print $1}' > "${pkg}-${ver}-macos.tar.gz.sha256"
+          (cd staging && tar -czf "../${pkg}-${ver}-${suffix}.tar.gz" "${pkg}.app")
+          shasum -a 256 "${pkg}-${ver}-${suffix}.tar.gz" > "${pkg}-${ver}-${suffix}.tar.gz.sha256"
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
@@ -136,10 +170,11 @@ jobs:
         run: |
           pkg="${{ env.PACKAGE }}"
           ver="${{ steps.version.outputs.version }}"
+          suffix="${{ matrix.suffix }}"
           mkdir -p staging
           cp "target/release/${pkg}" "staging/${pkg}"
-          tar -C staging -czf "${pkg}-${ver}-linux.tar.gz" "${pkg}"
-          sha256sum "${pkg}-${ver}-linux.tar.gz" | awk '{print $1}' > "${pkg}-${ver}-linux.tar.gz.sha256"
+          tar -C staging -czf "${pkg}-${ver}-${suffix}.tar.gz" "${pkg}"
+          sha256sum "${pkg}-${ver}-${suffix}.tar.gz" > "${pkg}-${ver}-${suffix}.tar.gz.sha256"
 
       # Optional convenience package. A failure here does not block the release.
       - name: Build Debian package
@@ -147,12 +182,15 @@ jobs:
         continue-on-error: true
         run: |
           cargo install cargo-deb
-          cargo deb --no-strip --output="${{ env.PACKAGE }}-${{ steps.version.outputs.version }}-linux.deb"
+          deb="${{ env.PACKAGE }}-${{ steps.version.outputs.version }}-${{ matrix.suffix }}.deb"
+          cargo deb --no-strip --output="$deb"
+          sha256sum "$deb" > "$deb.sha256"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ runner.os }}-release
+          # Must be unique per matrix job, otherwise the two Linux jobs collide.
+          name: ${{ matrix.suffix }}
           path: |
             ${{ env.PACKAGE }}-*.zip
             ${{ env.PACKAGE }}-*.tar.gz
@@ -192,8 +230,16 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
           body: |
-            Pre-built binaries for Windows, macOS and Linux. See the checksum (`.sha256`) file
-            for each artifact to verify its integrity.
+            Pre-built binaries for Windows, macOS and Linux.
+
+            | Platform | Architecture | Download |
+            | --- | --- | --- |
+            | Windows | x86_64 | `${{ env.PACKAGE }}-*-windows-x86_64.zip` |
+            | macOS | Universal (Apple Silicon + Intel) | `${{ env.PACKAGE }}-*-macos-universal.tar.gz` |
+            | Linux | x86_64 | `${{ env.PACKAGE }}-*-linux-x86_64.tar.gz` (or `.deb`) |
+            | Linux | arm64 | `${{ env.PACKAGE }}-*-linux-arm64.tar.gz` (or `.deb`) |
+
+            Each archive has a matching `.sha256` file to verify its integrity.
 
             > On macOS the app is not code-signed, so macOS may warn you about an "unidentified
             > developer" the first time you open it. Right-click the app and choose "Open" to
