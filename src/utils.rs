@@ -27,6 +27,7 @@ pub fn device_name_format(device: Option<&Device>) -> String {
     "Unknown device".to_string()
 }
 
+#[allow(dead_code)]
 pub fn get_device_by_id(id: &str) -> Option<Device> {
     let host = cpal::default_host();
     match DeviceId::from_str(id) {

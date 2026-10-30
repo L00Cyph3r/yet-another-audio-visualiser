@@ -452,7 +452,7 @@ impl GuiApp {
         let should_restart = match &self.visualisation.visualiser {
             VisualisationType::Equalizer(s) => s.bands != bands_before,
             VisualisationType::Waveform(s) => s.bands != bands_before,
-            VisualisationType::Nyan(s) => false,
+            VisualisationType::Nyan(_) => false,
             VisualisationType::SegmentedSpectrumBars(s) => s.bands != bands_before,
         };
         self.restart_analysis |= should_restart;

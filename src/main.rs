@@ -55,7 +55,7 @@ fn main() -> eframe::Result {
 
     let _sentry_guard = sentry::init((
         "https://99b74881be00737427c1eed3f5104cf1@o4507225498845184.ingest.de.sentry.io/4512334762147920",
-        sentry_options,
+        sentry::ClientOptions::new().maybe_release(release_name!()),
     ));
 
     let (command_tx, command_rx) = crossbeam_channel::unbounded();

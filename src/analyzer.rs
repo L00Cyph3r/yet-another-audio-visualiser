@@ -114,7 +114,7 @@ impl SpectrumAnalyzer {
                 0.0
             };
 
-            // Normalize for the FFT size.
+            // Normalise for the FFT size.
             let normalized = magnitude / self.fft_size as f32;
 
             // Convert to decibels.

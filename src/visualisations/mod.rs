@@ -89,9 +89,7 @@ impl VisualisationSettings {
             VisualisationType::Equalizer(settings) => {
                 self.visualiser_settings.equalizer = *settings
             }
-            VisualisationType::Waveform(settings) => {
-                self.visualiser_settings.waveform = *settings
-            }
+            VisualisationType::Waveform(settings) => self.visualiser_settings.waveform = *settings,
             VisualisationType::Nyan(settings) => self.visualiser_settings.nyan = *settings,
             VisualisationType::SegmentedSpectrumBars(settings) => {
                 self.visualiser_settings.segmented_spectrum_bars = settings.clone()
@@ -111,9 +109,11 @@ impl VisualisationSettings {
                 VisualisationType::Waveform(self.visualiser_settings.waveform)
             }
             VisualisationType::Nyan(_) => VisualisationType::Nyan(self.visualiser_settings.nyan),
-            VisualisationType::SegmentedSpectrumBars(_) => VisualisationType::SegmentedSpectrumBars(
-                self.visualiser_settings.segmented_spectrum_bars.clone(),
-            ),
+            VisualisationType::SegmentedSpectrumBars(_) => {
+                VisualisationType::SegmentedSpectrumBars(
+                    self.visualiser_settings.segmented_spectrum_bars.clone(),
+                )
+            }
         };
     }
 
@@ -233,7 +233,9 @@ impl Visualisation for VisualisationType {
             Self::Equalizer(s) => Equalizer(*s).draw(ui, bands, settings),
             Self::Waveform(s) => Waveform(*s).draw(ui, bands, settings),
             Self::Nyan(s) => Nyan(*s).draw(ui, bands, settings),
-            Self::SegmentedSpectrumBars(s) => SegmentedSpectrumBars(s.clone()).draw(ui, bands, settings),
+            Self::SegmentedSpectrumBars(s) => {
+                SegmentedSpectrumBars(s.clone()).draw(ui, bands, settings)
+            }
         }
     }
 
@@ -302,11 +304,9 @@ fn variant_from_name(name: &str) -> Result<VisualisationType, String> {
         "Equalizer" => Ok(VisualisationType::Equalizer(EqualizerSettings::default())),
         "Waveform" => Ok(VisualisationType::Waveform(WaveformSettings::default())),
         "Nyan" => Ok(VisualisationType::Nyan(NyanSettings::default())),
-        "SegmentedSpectrumBars" | "Segmented Spectrum Bars" => {
-            Ok(VisualisationType::SegmentedSpectrumBars(
-                SegmentedSpectrumBarsSettings::default(),
-            ))
-        }
+        "SegmentedSpectrumBars" | "Segmented Spectrum Bars" => Ok(
+            VisualisationType::SegmentedSpectrumBars(SegmentedSpectrumBarsSettings::default()),
+        ),
         _ => Err(format!("Unknown visualisation type '{name}'")),
     }
 }
@@ -547,7 +547,10 @@ mod tests {
             Color32::from_rgb(1, 2, 3)
         );
         // Unrelated sections stay untouched.
-        assert_eq!(settings.visualiser_settings.equalizer, EqualizerSettings::default());
+        assert_eq!(
+            settings.visualiser_settings.equalizer,
+            EqualizerSettings::default()
+        );
     }
 
     #[test]
@@ -569,7 +572,10 @@ mod tests {
         assert_eq!(settings.visualiser_settings.equalizer.band_gap, 3.0);
         // The stored segmented_spectrum_bars section is preserved (switching must not lose it).
         assert_eq!(
-            settings.visualiser_settings.segmented_spectrum_bars.segment_count,
+            settings
+                .visualiser_settings
+                .segmented_spectrum_bars
+                .segment_count,
             50
         );
     }
@@ -610,19 +616,20 @@ mod tests {
         settings.sync_visualiser_settings();
         settings.load_visualiser_settings();
         assert_eq!(
-            settings.visualiser_settings.segmented_spectrum_bars.segment_count,
+            settings
+                .visualiser_settings
+                .segmented_spectrum_bars
+                .segment_count,
             7
         );
     }
     #[test]
     fn visualisation_type_serialises_as_plain_name() {
-        let value = serde_json::to_value(
-            VisualisationType::Waveform(waveform::WaveformSettings {
-                color: Color32::from_rgb(1, 2, 3),
-                ..waveform::WaveformSettings::default()
-            }),
-        )
-            .unwrap();
+        let value = serde_json::to_value(VisualisationType::Waveform(waveform::WaveformSettings {
+            color: Color32::from_rgb(1, 2, 3),
+            ..waveform::WaveformSettings::default()
+        }))
+        .unwrap();
         assert_eq!(value, serde_json::json!("Waveform"));
     }
 
@@ -630,7 +637,10 @@ mod tests {
     fn visualisation_type_deserialises_from_plain_name_and_object() {
         // Plain type name uses defaults.
         let from_name: VisualisationType = serde_json::from_str("\"Nyan\"").unwrap();
-        assert_eq!(from_name, VisualisationType::Nyan(nyan::NyanSettings::default()));
+        assert_eq!(
+            from_name,
+            VisualisationType::Nyan(nyan::NyanSettings::default())
+        );
 
         // Object form carries explicit settings.
         let json = r#"{"Equalizer":{"band_gap":4.0}}"#;
@@ -647,6 +657,8 @@ mod tests {
         assert!(serde_json::from_str::<VisualisationType>("\"Bogus\"").is_err());
         // Empty / multi-entry objects are rejected.
         assert!(serde_json::from_str::<VisualisationType>("{}").is_err());
-        assert!(serde_json::from_str::<VisualisationType>(r#"{"Waveform":{},"Equalizer":{}}"#).is_err());
+        assert!(
+            serde_json::from_str::<VisualisationType>(r#"{"Waveform":{},"Equalizer":{}}"#).is_err()
+        );
     }
 }

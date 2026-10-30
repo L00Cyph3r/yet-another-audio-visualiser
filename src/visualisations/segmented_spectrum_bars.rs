@@ -196,8 +196,14 @@ impl ColorMapping {
                         ColorMapping::LedDefault,
                         ColorMapping::Rainbow,
                         ColorMapping::Solid(Color32::from_rgb(0, 220, 50)),
-                        ColorMapping::gradient(clamped_stops(gradient_stops, &default_gradient_stops())),
-                        ColorMapping::stepped(clamped_stops(stepped_stops, &default_stepped_stops())),
+                        ColorMapping::gradient(clamped_stops(
+                            gradient_stops,
+                            &default_gradient_stops(),
+                        )),
+                        ColorMapping::stepped(clamped_stops(
+                            stepped_stops,
+                            &default_stepped_stops(),
+                        )),
                     ];
                     for option in options {
                         let selected =
@@ -516,9 +522,9 @@ impl SegmentedSpectrumBarsSettings {
             });
 
         ui.separator();
-        changed |= self
-            .color_mapping
-            .settings_ui(ui, &mut self.gradient_stops, &mut self.stepped_stops);
+        changed |=
+            self.color_mapping
+                .settings_ui(ui, &mut self.gradient_stops, &mut self.stepped_stops);
         changed
     }
 }

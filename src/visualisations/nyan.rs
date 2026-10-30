@@ -576,7 +576,11 @@ mod tests {
             settings.visualiser_settings.nyan.window_width = if speed > 0.0 { 300.0 } else { 0.0 };
             for _ in 0..3 {
                 let mut output = ctx.run_ui(Default::default(), |ui| {
-                    Nyan(NyanSettings::default()).draw(ui, &[0.1, 0.5, 0.9, 0.3, 0.7, 0.2, 0.4], &settings);
+                    Nyan(NyanSettings::default()).draw(
+                        ui,
+                        &[0.1, 0.5, 0.9, 0.3, 0.7, 0.2, 0.4],
+                        &settings,
+                    );
                 });
                 output.textures_delta.clear();
             }
