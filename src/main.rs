@@ -8,6 +8,7 @@ pub mod visualisations;
 use crate::api::start_api_server;
 use crate::gui::app::GuiApp;
 use crate::gui::settings::{APP_DIR_NAME, SettingsStore};
+use clap::Parser;
 use eframe::egui;
 use egui::TextBuffer;
 use log::info;
@@ -60,6 +61,8 @@ fn main() -> eframe::Result {
         sentry::ClientOptions::new().maybe_release(release_name!()),
     ));
 
+    let args: CommandLineOptions = CommandLineOptions::parse();
+
     let (command_tx, command_rx) = crossbeam_channel::unbounded();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
@@ -73,7 +76,9 @@ fn main() -> eframe::Result {
         APP_DIR_NAME,
         options,
         Box::new(move |cc| {
-            let addr: SocketAddr = "127.0.0.1:3000".parse().expect("Invalid address");
+            let addr: SocketAddr = format!("{}:{}", args.host, args.port)
+                .parse()
+                .expect("Invalid address");
             start_api_server(addr, command_tx, cc.egui_ctx.clone());
 
             let store = SettingsStore::default_location();
