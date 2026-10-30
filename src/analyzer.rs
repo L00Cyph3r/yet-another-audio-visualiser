@@ -3,22 +3,22 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
-const FFT_SIZE: usize = 2048;
+pub const DEFAULT_FFT_SIZE: usize = 16384;
 const NUM_BANDS: usize = 48;
 
 pub struct SpectrumAnalyzerSettings {
     pub bands: usize,
-    pub gain: f32,
     pub fft_size: usize,
     pub sample_rate: u32,
+    pub smoothing: f32,
 }
 
 impl Default for SpectrumAnalyzerSettings {
     fn default() -> Self {
         Self {
             bands: NUM_BANDS,
-            gain: 1.0,
-            fft_size: FFT_SIZE,
+            smoothing: 0.5,
+            fft_size: DEFAULT_FFT_SIZE,
             sample_rate: 44100,
         }
     }
@@ -32,6 +32,7 @@ pub struct SpectrumAnalyzer {
     sample_rate: u32,
     fft_size: usize,
     bands_size: usize,
+    smoothing: f32,
 }
 impl Debug for SpectrumAnalyzer {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -59,7 +60,12 @@ impl SpectrumAnalyzer {
             sample_rate: settings.sample_rate,
             fft_size: settings.fft_size,
             bands_size: settings.bands,
+            smoothing: settings.smoothing,
         }
+    }
+
+    pub fn set_smoothing(&mut self, smoothing: f32) {
+        self.smoothing = smoothing;
     }
 
     pub fn push_sample(&mut self, sample: f32) {
@@ -121,13 +127,13 @@ impl SpectrumAnalyzer {
             let db = 20.0 * normalized.max(1e-7).log10();
 
             // Map roughly -80 dB..0 dB onto 0.0..1.0.
-            let target = ((db + 80.0) / 80.0).clamp(0.0, 1.0);
+            let target = ((db + 90.0) / 90.0).clamp(0.0, 1.0);
 
             // Smooth the display. Higher values respond faster.
             let smoothing = if target > self.bands[band_index] {
-                0.35 // attack
+                (1.0 / 3.0) + (self.smoothing / 3.0) // attack
             } else {
-                0.08 // release
+                (1.0 / 3.0) - (self.smoothing / 3.0) // release
             };
 
             self.bands[band_index] += (target - self.bands[band_index]) * smoothing;

@@ -9,7 +9,9 @@ use crate::api::start_api_server;
 use crate::gui::app::GuiApp;
 use crate::gui::settings::{APP_DIR_NAME, SettingsStore};
 use eframe::egui;
+use egui::TextBuffer;
 use log::info;
+use sentry::release_name;
 use std::net::SocketAddr;
 use sysinfo::{ProcessRefreshKind, RefreshKind};
 

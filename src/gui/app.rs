@@ -1,4 +1,4 @@
-use crate::analyzer::{SpectrumAnalyzer, SpectrumAnalyzerSettings};
+use crate::analyzer::{DEFAULT_FFT_SIZE, SpectrumAnalyzer, SpectrumAnalyzerSettings};
 use crate::api::types::{AppCommand, DeviceDto, SettingsDto, SettingsPatch};
 use crate::capture::{AudioCapture, start_capture};
 use crate::gui::settings::{AppSettings, SettingsStore};
@@ -239,6 +239,10 @@ impl GuiApp {
         }
         if let Some(smoothing) = patch.smoothing {
             updated.smoothing = smoothing;
+            match self.analyzer {
+                Some(ref mut analyzer) => analyzer.set_smoothing(smoothing),
+                _ => {}
+            }
         }
         if let Some(band_gap) = patch.band_gap {
             updated.band_gap = band_gap;
@@ -417,8 +421,20 @@ impl GuiApp {
                         ui.add(egui::Slider::new(&mut settings.gain, 0.0..=10.0));
                         ui.end_row();
 
-                        ui.label("Smoothing");
-                        ui.add(egui::Slider::new(&mut settings.smoothing, 0.0..=1.0));
+                        ui.label("Smoothing").on_hover_text(
+                            "Higher value will make the 'descend' of a graph slower",
+                        );
+                        if ui
+                            .add(egui::Slider::new(&mut settings.smoothing, 0.01..=0.99))
+                            .changed()
+                        {
+                            match self.analyzer {
+                                Some(ref mut analyzer) => {
+                                    analyzer.set_smoothing(settings.smoothing)
+                                }
+                                _ => {}
+                            }
+                        };
                         ui.end_row();
                     });
             });
@@ -507,9 +523,8 @@ impl eframe::App for GuiApp {
             if self.analyzer.is_none() && self.capture.is_some() {
                 self.analyzer = Some(SpectrumAnalyzer::new(SpectrumAnalyzerSettings {
                     sample_rate: self.capture.as_ref().unwrap().sample_rate,
-                    fft_size: 16384,
+                    fft_size: DEFAULT_FFT_SIZE,
                     bands: self.visualisation.bands(),
-                    gain: 1.0,
                     ..SpectrumAnalyzerSettings::default()
                 }));
                 self.restart_analysis = true;
@@ -529,9 +544,9 @@ impl eframe::App for GuiApp {
             if self.restart_analysis && self.capture.is_some() && self.device.is_some() {
                 let analyzer = SpectrumAnalyzer::new(SpectrumAnalyzerSettings {
                     sample_rate: self.capture.as_ref().unwrap().sample_rate,
-                    fft_size: 2048,
+                    fft_size: DEFAULT_FFT_SIZE,
                     bands: self.visualisation.bands(),
-                    gain: self.visualisation.gain,
+                    smoothing: self.visualisation.smoothing,
                     ..SpectrumAnalyzerSettings::default()
                 });
                 self.analyzer = Some(analyzer);
