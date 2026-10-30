@@ -5,7 +5,7 @@ use egui::{Color32, Ui};
 use serde::{Deserialize, Serialize};
 
 /// Maximum number of vertical segments per bar.
-const MAX_SEGMENTS: usize = 64;
+const MAX_SEGMENTS: usize = 256;
 /// Upper bound for gaps (in points).
 const MAX_GAP: f32 = 64.0;
 
