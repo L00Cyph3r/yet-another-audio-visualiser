@@ -186,6 +186,18 @@ Keyboard shortcuts:
 | `F1`  | Toggle the help text                     |
 | `Esc` | Stop capture and clear the active device |
 
+### CLI
+
+```bash
+Usage: yet-another-audio-visualiser.exe [OPTIONS]
+
+Options:
+  -h, --host <HOST>  [default: 127.0.0.1]
+  -p, --port <PORT>  [default: 3000]
+  -h, --help         Print help
+  -V, --version      Print version
+```
+
 ### HTTP API
 
 The app exposes a local REST API on `http://127.0.0.1:3000` while running.
