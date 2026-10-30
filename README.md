@@ -1,6 +1,7 @@
 # yet-another-audio-visualiser
 
 [![Release](https://github.com/L00Cyph3r/yet-another-audio-visualiser/actions/workflows/release.yml/badge.svg)](https://github.com/L00Cyph3r/yet-another-audio-visualiser/actions/workflows/release.yml)
+![GitHub Release](https://img.shields.io/github/v/release/L00Cyph3r/yet-another-audio-visualiser)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](#license)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-orange.svg)
 
@@ -28,60 +29,6 @@ scripts, stream decks, or widgets can change settings on the fly.
 - **Built-in error reporting** — panics and errors are reported to Sentry.
 - **Cross-platform release builds** — a GitHub Actions workflow produces Windows, macOS and Linux artifacts.
 
-## Tech Stack & Tools
-
-| Area            | Choice                     | Why                                                                                                  |
-|-----------------|----------------------------|------------------------------------------------------------------------------------------------------|
-| Language        | **Rust** (edition 2024)    | Memory safety and native performance for real-time audio/FFT work.                                   |
-| GUI             | **eframe / egui 0.37**     | Immediate-mode GUI that is simple to drive from a render loop and keeps state in plain Rust structs. |
-| Audio capture   | **cpal 0.18**              | Cross-platform audio I/O (WASAPI on Windows, ALSA/PipeWire on Linux, CoreAudio on macOS).            |
-| DSP             | **rustfft 6.4**            | Fast, pure-Rust FFT for the spectrum analysis.                                                       |
-| HTTP API        | **axum 0.8** + **tokio 1** | Ergonomic async HTTP server running on a background thread, isolated from the GUI.                   |
-| Messaging       | **crossbeam-channel**      | Lock-free channels to move commands between the async server and the GUI thread.                     |
-| Serialization   | **serde / serde_json**     | Settings and API payloads are plain JSON DTOs.                                                       |
-| Enums           | **strum**                  | Iterating over the visualisation types to build the selector.                                        |
-| Paths           | **dirs**                   | Locating the platform configuration directory.                                                       |
-| Logging         | **log** + **env_logger**   | Structured application logging to the console.                                                       |
-| Images          | **image** (PNG)            | Decoding the embedded Nyan Cat sprite.                                                               |
-| Error reporting | **sentry 0.49**            | Captures panics and errors.                                                                          |
-| Error handling  | **anyhow**                 | Ergonomic error propagation in the audio capture path.                                               |
-
-## Architecture & Project Structure
-
-```
-src/
-├── main.rs                     # Entry point: Sentry init, settings load, eframe run, API server start
-├── analyzer.rs                 # SpectrumAnalyzer: windowed FFT -> log-spaced bands -> smoothing
-├── capture.rs                  # AudioCapture: cpal input stream -> mono sample channel
-├── utils.rs                    # Audio device helpers (list, format, default)
-├── api/
-│   ├── mod.rs
-│   ├── server.rs               # Axum router + handlers, background Tokio runtime
-│   └── types.rs                # AppCommand, SettingsDto, SettingsPatch, DeviceDto
-├── gui/
-│   ├── mod.rs
-│   ├── app.rs                  # GuiApp: egui UI, command handling, persistence, viewports
-│   └── settings.rs             # AppSettings + SettingsStore (atomic JSON persistence)
-└── visualisations/
-    ├── mod.rs                  # Visualisation trait, VisualisationType, shared settings structs
-    ├── equalizer.rs
-    ├── waveform.rs
-    ├── nyan.rs
-    └── segmented_spectrum_bars.rs
-```
-
-**Data flow**
-
-1. **Audio** — `cpal` runs a background input stream (`capture.rs`) that downmixes frames to mono
-   and pushes `f32` samples through a bounded `crossbeam-channel`.
-2. **Analysis** — each frame, `GuiApp` drains the channel into a `SpectrumAnalyzer` (`analyzer.rs`),
-   which applies a Hann window, runs the FFT, groups bins into logarithmic bands, converts to dB,
-   and smooths the result.
-3. **Rendering** — `GuiApp::ui()` reads the band levels and calls `Visualisation::draw` for the
-   selected type, rendering into an egui viewport.
-4. **Control** — the HTTP API (`api/server.rs`) runs on its own thread and sends `AppCommand`s over
-   a `crossbeam-channel`. `GuiApp::handle_commands()` applies them at the start of each frame and
-   calls `request_repaint()` so changes show up immediately.
 
 ## Getting Started / Installation
 
@@ -273,6 +220,61 @@ Contributions are welcome:
 
 Releases are produced automatically by the [`release`](.github/workflows/release.yml) workflow when
 a tag matching `v*` is pushed.
+
+## Tech Stack & Tools
+
+| Area            | Choice                     | Why                                                                                                  |
+|-----------------|----------------------------|------------------------------------------------------------------------------------------------------|
+| Language        | **Rust** (edition 2024)    | Memory safety and native performance for real-time audio/FFT work.                                   |
+| GUI             | **eframe / egui 0.37**     | Immediate-mode GUI that is simple to drive from a render loop and keeps state in plain Rust structs. |
+| Audio capture   | **cpal 0.18**              | Cross-platform audio I/O (WASAPI on Windows, ALSA/PipeWire on Linux, CoreAudio on macOS).            |
+| DSP             | **rustfft 6.4**            | Fast, pure-Rust FFT for the spectrum analysis.                                                       |
+| HTTP API        | **axum 0.8** + **tokio 1** | Ergonomic async HTTP server running on a background thread, isolated from the GUI.                   |
+| Messaging       | **crossbeam-channel**      | Lock-free channels to move commands between the async server and the GUI thread.                     |
+| Serialization   | **serde / serde_json**     | Settings and API payloads are plain JSON DTOs.                                                       |
+| Enums           | **strum**                  | Iterating over the visualisation types to build the selector.                                        |
+| Paths           | **dirs**                   | Locating the platform configuration directory.                                                       |
+| Logging         | **log** + **env_logger**   | Structured application logging to the console.                                                       |
+| Images          | **image** (PNG)            | Decoding the embedded Nyan Cat sprite.                                                               |
+| Error reporting | **sentry 0.49**            | Captures panics and errors.                                                                          |
+| Error handling  | **anyhow**                 | Ergonomic error propagation in the audio capture path.                                               |
+
+## Architecture & Project Structure
+
+```
+src/
+├── main.rs                     # Entry point: Sentry init, settings load, eframe run, API server start
+├── analyzer.rs                 # SpectrumAnalyzer: windowed FFT -> log-spaced bands -> smoothing
+├── capture.rs                  # AudioCapture: cpal input stream -> mono sample channel
+├── utils.rs                    # Audio device helpers (list, format, default)
+├── api/
+│   ├── mod.rs
+│   ├── server.rs               # Axum router + handlers, background Tokio runtime
+│   └── types.rs                # AppCommand, SettingsDto, SettingsPatch, DeviceDto
+├── gui/
+│   ├── mod.rs
+│   ├── app.rs                  # GuiApp: egui UI, command handling, persistence, viewports
+│   └── settings.rs             # AppSettings + SettingsStore (atomic JSON persistence)
+└── visualisations/
+    ├── mod.rs                  # Visualisation trait, VisualisationType, shared settings structs
+    ├── equalizer.rs
+    ├── waveform.rs
+    ├── nyan.rs
+    └── segmented_spectrum_bars.rs
+```
+
+**Data flow**
+
+1. **Audio** — `cpal` runs a background input stream (`capture.rs`) that downmixes frames to mono
+   and pushes `f32` samples through a bounded `crossbeam-channel`.
+2. **Analysis** — each frame, `GuiApp` drains the channel into a `SpectrumAnalyzer` (`analyzer.rs`),
+   which applies a Hann window, runs the FFT, groups bins into logarithmic bands, converts to dB,
+   and smooths the result.
+3. **Rendering** — `GuiApp::ui()` reads the band levels and calls `Visualisation::draw` for the
+   selected type, rendering into an egui viewport.
+4. **Control** — the HTTP API (`api/server.rs`) runs on its own thread and sends `AppCommand`s over
+   a `crossbeam-channel`. `GuiApp::handle_commands()` applies them at the start of each frame and
+   calls `request_repaint()` so changes show up immediately.
 
 ## License
 
