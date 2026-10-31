@@ -221,6 +221,61 @@ Contributions are welcome:
 Releases are produced automatically by the [`release`](.github/workflows/release.yml) workflow when
 a tag matching `v*` is pushed.
 
+### Profiling
+
+The project ships three complementary ways to find out where CPU and RAM go. None of them affect
+a normal `cargo build --release`.
+
+**1. Symbol-bearing build** — sampling profilers need debug info to attribute samples to source
+lines, so there is a `profiling` cargo profile that is `release` plus debug symbols:
+
+```bash
+cargo build --profile profiling
+# binary: target/profiling/yet-another-audio-visualiser(.exe)
+```
+
+**2. Sampling profiler (CPU)** — for a system-wide view, including the audio callback thread:
+
+```bash
+cargo install --locked samply
+samply record --save-only -o yav-profile.json ./target/profiling/yet-another-audio-visualiser
+# interact with the app, then press Ctrl+C and open the profile:
+samply load yav-profile.json
+```
+
+On Windows this may ask for elevation, and `samply record -a` records every process. The
+[Firefox Profiler](https://profiler.firefox.com/) opens locally and nothing is uploaded.
+
+**3. In-app profiler (puffin)** — for per-scope attribution of a single frame, enable the
+`profiling` feature:
+
+```bash
+cargo run --features profiling
+```
+
+This starts a puffin server on `127.0.0.1:8585`; scopes cover
+`handle_commands`, `drain_samples`, `analyzer_update`, `visualisation_draw` and`persist_settings`.
+To view the profiling data, run puffin viewer:
+
+```bash
+cargo install puffin_viewer
+puffin_viewer --url 127.0.0.1:8585
+```
+
+The realtime audio callback is deliberately *not* instrumented — it must not allocate or block —
+so use a sampling profiler to inspect that thread.
+
+**4. Benchmarks** — repeatable numbers for the per-frame hot paths, used to check that an
+optimisation actually helped:
+
+```bash
+cargo bench                      # both suites
+cargo bench --bench analyzer     # windowing, FFT, band grouping
+cargo bench --bench visualisations
+```
+
+`test = false` on the bench targets keeps `cargo test` from running them.
+
 ## Tech Stack & Tools
 
 | Area            | Choice                     | Why                                                                                                  |
@@ -242,8 +297,14 @@ a tag matching `v*` is pushed.
 ## Architecture & Project Structure
 
 ```
+benches/
+├── analyzer.rs                 # Divan benchmarks: windowing, FFT, band grouping
+└── visualisations.rs           # Divan benchmarks: per-frame draw cost of each visualisation
+
 src/
 ├── main.rs                     # Entry point: Sentry init, settings load, eframe run, API server start
+├── lib.rs                      # Library half, so benches/tests can reuse the application
+├── profiling.rs                # puffin instrumentation behind the `profiling` feature
 ├── analyzer.rs                 # SpectrumAnalyzer: windowed FFT -> log-spaced bands -> smoothing
 ├── capture.rs                  # AudioCapture: cpal input stream -> mono sample channel
 ├── utils.rs                    # Audio device helpers (list, format, default)

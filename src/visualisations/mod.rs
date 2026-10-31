@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use strum::EnumIter;
 
+use crate::profiling::{profile_function, profile_scope};
+
 pub mod equalizer;
 pub mod nyan;
 pub mod segmented_spectrum_bars;
@@ -229,11 +231,13 @@ impl VisualisationType {
 
 impl Visualisation for VisualisationType {
     fn draw(&self, ui: &mut egui::Ui, bands: &[f32], settings: &VisualisationSettings) {
+        profile_function!();
         match self {
             Self::Equalizer(s) => Equalizer(*s).draw(ui, bands, settings),
             Self::Waveform(s) => Waveform(*s).draw(ui, bands, settings),
             Self::Nyan(s) => Nyan(*s).draw(ui, bands, settings),
             Self::SegmentedSpectrumBars(s) => {
+                profile_scope!("segmented_spectrum_bars_clone");
                 SegmentedSpectrumBars(s.clone()).draw(ui, bands, settings)
             }
         }

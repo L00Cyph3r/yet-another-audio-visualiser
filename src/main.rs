@@ -1,13 +1,9 @@
-mod analyzer;
-pub mod api;
-mod capture;
-pub mod gui;
-mod utils;
-pub mod visualisations;
+//! Binary entry point.
+//!
+//! The application itself lives in the library crate (`src/lib.rs`) so that the benchmarks and
+//! integration tests can use it; this file only wires up logging, error reporting, the command
+//! line and `eframe`.
 
-use crate::api::start_api_server;
-use crate::gui::app::GuiApp;
-use crate::gui::settings::{APP_DIR_NAME, SettingsStore};
 use clap::Parser;
 use eframe::egui;
 use egui::TextBuffer;
@@ -15,11 +11,15 @@ use log::info;
 use sentry::release_name;
 use std::net::SocketAddr;
 use sysinfo::{ProcessRefreshKind, RefreshKind};
+use yet_another_audio_visualiser::api::start_api_server;
+use yet_another_audio_visualiser::gui::app::GuiApp;
+use yet_another_audio_visualiser::gui::settings::{APP_DIR_NAME, SettingsStore};
+use yet_another_audio_visualiser::{profiling, utils};
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct CommandLineOptions {
-    #[clap(short, long, default_value = "127.0.0.1")]
+    #[clap(long, default_value = "127.0.0.1")]
     host: String,
     #[clap(short, long, default_value = "3000")]
     port: u16,
@@ -62,6 +62,9 @@ fn main() -> eframe::Result {
     ));
 
     let args: CommandLineOptions = CommandLineOptions::parse();
+
+    // A no-op unless the `profiling` feature is enabled.
+    profiling::start_puffin_server();
 
     let (command_tx, command_rx) = crossbeam_channel::unbounded();
     let options = eframe::NativeOptions {

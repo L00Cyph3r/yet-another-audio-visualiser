@@ -1,3 +1,4 @@
+use crate::profiling::{profile_function, profile_scope};
 use crate::visualisations::{MAX_BANDS, Visualisation, VisualisationSettings, VisualisationType};
 use eframe::emath::Vec2;
 use egui::ViewportCommand::InnerSize;
@@ -531,6 +532,7 @@ impl SegmentedSpectrumBarsSettings {
 pub struct SegmentedSpectrumBars(pub SegmentedSpectrumBarsSettings);
 impl Visualisation for SegmentedSpectrumBars {
     fn draw(&self, ui: &mut Ui, bands: &[f32], settings: &VisualisationSettings) {
+        profile_function!();
         let own = &self.0;
         let window_size = Vec2::new(own.window_width, own.window_height);
         ui.ctx().send_viewport_cmd(InnerSize(window_size));
@@ -558,35 +560,41 @@ impl Visualisation for SegmentedSpectrumBars {
             (seg_h, gap.max(0.0))
         };
 
-        for (i, &level) in bands.iter().enumerate() {
-            let x = rect.left() + i as f32 * (bar_width + own.band_gap);
-            let level_clamped = (level * settings.gain).clamp(0.0, 1.0);
-            let active_count = if level_clamped <= 0.0 {
-                0
-            } else {
-                ((level_clamped * num_segments as f32).round() as usize).min(num_segments)
-            };
-
-            for s in 0..num_segments {
-                let is_active = s < active_count;
-                if !is_active && !own.draw_inactive_segments {
-                    continue;
-                }
-
-                let seg_bottom = rect.bottom() - s as f32 * (seg_height + actual_v_gap);
-                let seg_top = seg_bottom - seg_height;
-                let seg_rect = egui::Rect::from_min_max(
-                    egui::pos2(x, seg_top),
-                    egui::pos2(x + bar_width, seg_bottom),
-                );
-
-                let color = if is_active {
-                    own.color_mapping.get_color_for_segment(s, num_segments)
+        {
+            profile_scope!("segments");
+            for (i, &level) in bands.iter().enumerate() {
+                let x = rect.left() + i as f32 * (bar_width + own.band_gap);
+                let level_clamped = (level * settings.gain).clamp(0.0, 1.0);
+                let active_count = if level_clamped <= 0.0 {
+                    0
                 } else {
-                    own.inactive_color
+                    ((level_clamped * num_segments as f32).round() as usize).min(num_segments)
                 };
+                for s in 0..num_segments {
+                    let is_active = s < active_count;
+                    if !is_active && !own.draw_inactive_segments {
+                        continue;
+                    }
 
-                painter.rect_filled(seg_rect, egui::CornerRadius::same(own.corner_radius), color);
+                    let seg_bottom = rect.bottom() - s as f32 * (seg_height + actual_v_gap);
+                    let seg_top = seg_bottom - seg_height;
+                    let seg_rect = egui::Rect::from_min_max(
+                        egui::pos2(x, seg_top),
+                        egui::pos2(x + bar_width, seg_bottom),
+                    );
+
+                    let color = if is_active {
+                        own.color_mapping.get_color_for_segment(s, num_segments)
+                    } else {
+                        own.inactive_color
+                    };
+
+                    painter.rect_filled(
+                        seg_rect,
+                        egui::CornerRadius::same(own.corner_radius),
+                        color,
+                    );
+                }
             }
         }
     }

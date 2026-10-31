@@ -1,3 +1,4 @@
+use crate::profiling::profile_function;
 use crate::visualisations::{MAX_BANDS, Visualisation, VisualisationSettings, VisualisationType};
 use eframe::emath::Vec2;
 use egui::ViewportCommand::InnerSize;
@@ -106,6 +107,7 @@ pub(crate) struct Waveform(pub WaveformSettings);
 
 impl Visualisation for Waveform {
     fn draw(&self, ui: &mut Ui, bands: &[f32], settings: &VisualisationSettings) {
+        profile_function!();
         let own = &self.0;
         let window_size = Vec2::new(own.window_width, own.window_height);
         ui.ctx().send_viewport_cmd(InnerSize(window_size));

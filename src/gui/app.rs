@@ -2,6 +2,7 @@ use crate::analyzer::{DEFAULT_FFT_SIZE, SpectrumAnalyzer, SpectrumAnalyzerSettin
 use crate::api::types::{AppCommand, DeviceDto, SettingsDto, SettingsPatch};
 use crate::capture::{AudioCapture, start_capture};
 use crate::gui::settings::{AppSettings, SettingsStore};
+use crate::profiling::{end_frame, profile_function, profile_scope};
 use crate::utils::{device_name_format, get_audio_devices};
 use crate::visualisations::{Visualisation, VisualisationSettings, VisualisationType};
 use cpal::Device;
@@ -74,12 +75,12 @@ fn start_window_drag_on_press(ui: &mut egui::Ui) -> bool {
 }
 
 impl GuiApp {
-    pub(crate) fn set_device(&mut self, device: Option<Device>) {
+    pub fn set_device(&mut self, device: Option<Device>) {
         self.restart_capture = device.is_some();
         self.device = device;
     }
 
-    pub(crate) fn has_device(&self) -> bool {
+    pub fn has_device(&self) -> bool {
         self.device.is_some()
     }
 
@@ -88,6 +89,7 @@ impl GuiApp {
     }
 
     fn save_settings(&mut self) {
+        profile_function!();
         self.dirty_since = None;
         let Some(store) = &self.store else {
             return;
@@ -263,6 +265,7 @@ impl GuiApp {
     }
 
     pub fn handle_commands(&mut self) {
+        profile_scope!("handle_commands");
         while let Ok(cmd) = self.command_rx.try_recv() {
             match cmd {
                 AppCommand::UpdateSettings(patch, respond_to) => {
@@ -342,6 +345,7 @@ impl GuiApp {
     }
 
     fn draw_device_selection(&mut self, ui: &mut egui::Ui) {
+        profile_function!();
         let devices = &self.available_devices;
         ui.horizontal_wrapped(|ui| {
             let label = Label::new("Audio Input").selectable(false);
@@ -352,6 +356,7 @@ impl GuiApp {
                 .selected_text(device_name_format(self.device.as_ref()))
                 .show_ui(ui, |ui| {
                     devices.iter().for_each(|device| {
+                        profile_scope!("device_description");
                         if let Ok(description) = device.description() {
                             if description.direction() != cpal::DeviceDirection::Input {
                                 return;
@@ -381,6 +386,7 @@ impl GuiApp {
         &mut self,
         ui: &mut egui::Ui,
     ) -> InnerResponse<InnerResponse<Option<()>>> {
+        profile_function!();
         let before = self.visualisation.visualiser.clone();
         let response = ui.horizontal_wrapped(|ui| {
             let label = Label::new("Visualisation").selectable(false);
@@ -410,6 +416,7 @@ impl GuiApp {
     /// Draws the editors for the shared settings and for the individual settings of the
     /// selected visualisation.
     fn draw_settings_section(&mut self, ui: &mut egui::Ui) {
+        profile_function!();
         egui::CollapsingHeader::new("General settings")
             .default_open(true)
             .show(ui, |ui| {
@@ -476,12 +483,18 @@ impl GuiApp {
 
     // TODO: Make proper help window
     fn draw_help(&mut self, ui: &mut egui::Ui) {
+        profile_function!();
         ui.label("Press Escape to exit.");
     }
 }
 
 impl eframe::App for GuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // Hands the scopes recorded during the previous frame to the profiler sinks. Must run
+        // before any scope of this frame is opened.
+        end_frame();
+        profile_function!();
+
         self.handle_commands();
         let typing = ui.ctx().egui_wants_keyboard_input();
         ui.ctx().input(|i| {
@@ -554,11 +567,17 @@ impl eframe::App for GuiApp {
             }
 
             if let (Some(capture), Some(analyzer)) = (&self.capture, &mut self.analyzer) {
-                while let Ok(sample) = capture.samples.try_recv() {
-                    analyzer.push_sample(sample);
+                {
+                    profile_scope!("drain_samples");
+                    while let Ok(sample) = capture.samples.try_recv() {
+                        analyzer.push_sample(sample);
+                    }
                 }
 
-                analyzer.update();
+                {
+                    profile_scope!("analyzer_update");
+                    analyzer.update();
+                }
             }
 
             if let Some(error) = &self.error {
@@ -585,6 +604,7 @@ impl eframe::App for GuiApp {
                             // used to move it around.
                             start_window_drag_on_press(ui);
                             self.visualisation.window_size = ui.available_size();
+                            profile_scope!("visualisation_draw");
                             self.visualisation.visualiser.draw(
                                 ui,
                                 analyzer.bands(),
@@ -597,10 +617,14 @@ impl eframe::App for GuiApp {
             ui.add_space(8.0);
         });
 
-        self.persist_settings_if_needed();
+        {
+            profile_scope!("persist_settings");
+            self.persist_settings_if_needed();
+        }
     }
 
     fn save(&mut self, _storage: &mut dyn eframe::Storage) {
+        profile_function!();
         self.persist_settings_if_needed();
         if self.dirty_since.is_some() {
             self.save_settings();

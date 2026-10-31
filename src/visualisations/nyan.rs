@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 
+use crate::profiling::{profile_function, profile_scope};
 use crate::visualisations::{Visualisation, VisualisationSettings, VisualisationType};
 use egui::ViewportCommand::InnerSize;
 use egui::{Color32, ColorImage, Pos2, Rect, Stroke, TextureHandle, TextureOptions, Ui, Vec2};
@@ -219,6 +220,7 @@ pub(crate) struct Nyan(pub NyanSettings);
 
 impl Visualisation for Nyan {
     fn draw(&self, ui: &mut Ui, bands: &[f32], settings: &VisualisationSettings) {
+        profile_function!();
         let (window, _) = ui.allocate_exact_size(settings.window_size, egui::Sense::hover());
         let own = &self.0;
         ui.ctx()
@@ -247,6 +249,7 @@ impl Visualisation for Nyan {
         let dt = ui.input(|input| input.stable_dt).clamp(0.0, 0.1);
         let current = to_rainbow_bands(bands);
         let trail = ui.ctx().data_mut(|data| {
+            profile_scope!("trail_advance_and_clone");
             let trail = data.get_temp_mut_or_default::<Trail>(trail_id);
             trail.advance(dt * own.speed, current, origin_x - rect.left());
             trail.clone()
@@ -262,6 +265,7 @@ impl Visualisation for Nyan {
 
         // Draw from the bottom up so the top lines end up in front.
         for band in (0..RAINBOW_BANDS).rev() {
+            profile_scope!("rainbow_line");
             let baseline = top_line_y + pitch * band as f32;
             let direction = displacement_direction(band);
             let to_point = |x: f32, level: f32| {

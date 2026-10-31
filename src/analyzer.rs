@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use std::fmt::{Debug, Formatter};
 use std::sync::Arc;
 
+use crate::profiling::{profile_function, profile_scope};
+
 pub const DEFAULT_FFT_SIZE: usize = 16384;
 const NUM_BANDS: usize = 48;
 
@@ -77,25 +79,35 @@ impl SpectrumAnalyzer {
     }
 
     pub fn update(&mut self) {
+        profile_function!();
+
         if self.samples.len() < self.fft_size {
             return;
         }
 
         // Copy samples into the FFT buffer and apply a Hann window.
-        for (i, &sample) in self.samples.iter().enumerate() {
-            let window = 0.5
-                * (1.0
-                    - (2.0 * std::f32::consts::PI * i as f32 / (self.fft_size - 1) as f32).cos());
+        {
+            profile_scope!("hann_window");
+            for (i, &sample) in self.samples.iter().enumerate() {
+                let window = 0.5
+                    * (1.0
+                        - (2.0 * std::f32::consts::PI * i as f32 / (self.fft_size - 1) as f32)
+                            .cos());
 
-            self.fft_buffer[i] = Complex32::new(sample * window, 0.0);
+                self.fft_buffer[i] = Complex32::new(sample * window, 0.0);
+            }
         }
 
-        self.fft.process(&mut self.fft_buffer);
+        {
+            profile_scope!("fft");
+            self.fft.process(&mut self.fft_buffer);
+        }
 
         let nyquist = self.sample_rate as f32 / 2.0;
         let bin_width = self.sample_rate as f32 / self.fft_size as f32;
 
         // Create logarithmically spaced frequency bands.
+        profile_scope!("bands");
         for band_index in 0..self.bands_size {
             let t0 = band_index as f32 / self.bands_size as f32;
             let t1 = (band_index + 1) as f32 / self.bands_size as f32;
