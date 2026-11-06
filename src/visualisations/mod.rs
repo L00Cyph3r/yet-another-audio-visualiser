@@ -42,6 +42,7 @@ pub struct VisualisationSettings {
     pub smoothing: f32,
     pub window_size: Vec2,
     pub band_gap: f32,
+    pub background_color: egui::Color32,
     pub visualiser_settings: VisualiserSettings,
 }
 
@@ -53,6 +54,7 @@ impl Default for VisualisationSettings {
             smoothing: 0.0,
             window_size: Vec2::new(800.0, 80.0),
             band_gap: 0.0,
+            background_color: egui::Color32::BLACK,
             visualiser_settings: VisualiserSettings::default(),
         }
     }
@@ -68,6 +70,7 @@ impl PartialEq for VisualisationSettings {
             && self.gain == other.gain
             && self.smoothing == other.smoothing
             && self.band_gap == other.band_gap
+            && self.background_color == other.background_color
             && self.visualiser_settings == other.visualiser_settings
     }
 }
@@ -92,7 +95,7 @@ impl VisualisationSettings {
                 self.visualiser_settings.equalizer = *settings
             }
             VisualisationType::Waveform(settings) => self.visualiser_settings.waveform = *settings,
-            VisualisationType::Nyan(settings) => self.visualiser_settings.nyan = *settings,
+            VisualisationType::Nyan(settings) => self.visualiser_settings.nyan = settings.clone(),
             VisualisationType::SegmentedSpectrumBars(settings) => {
                 self.visualiser_settings.segmented_spectrum_bars = settings.clone()
             }
@@ -103,6 +106,7 @@ impl VisualisationSettings {
     /// into the enum variant carried in `visualiser`. Used when the application starts and when the
     /// visualisation type is switched, so that persisted values take effect.
     pub fn load_visualiser_settings(&mut self) {
+        profile_function!();
         self.visualiser = match self.visualiser {
             VisualisationType::Equalizer(_) => {
                 VisualisationType::Equalizer(self.visualiser_settings.equalizer)
@@ -110,7 +114,9 @@ impl VisualisationSettings {
             VisualisationType::Waveform(_) => {
                 VisualisationType::Waveform(self.visualiser_settings.waveform)
             }
-            VisualisationType::Nyan(_) => VisualisationType::Nyan(self.visualiser_settings.nyan),
+            VisualisationType::Nyan(_) => {
+                VisualisationType::Nyan(self.visualiser_settings.nyan.clone())
+            }
             VisualisationType::SegmentedSpectrumBars(_) => {
                 VisualisationType::SegmentedSpectrumBars(
                     self.visualiser_settings.segmented_spectrum_bars.clone(),
@@ -235,7 +241,7 @@ impl Visualisation for VisualisationType {
         match self {
             Self::Equalizer(s) => Equalizer(*s).draw(ui, bands, settings),
             Self::Waveform(s) => Waveform(*s).draw(ui, bands, settings),
-            Self::Nyan(s) => Nyan(*s).draw(ui, bands, settings),
+            Self::Nyan(s) => Nyan(s.clone()).draw(ui, bands, settings),
             Self::SegmentedSpectrumBars(s) => {
                 profile_scope!("segmented_spectrum_bars_clone");
                 SegmentedSpectrumBars(s.clone()).draw(ui, bands, settings)

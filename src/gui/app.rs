@@ -221,6 +221,7 @@ impl GuiApp {
             visualiser: self.visualisation.visualiser.clone(),
             gain: self.visualisation.gain,
             smoothing: self.visualisation.smoothing,
+            background_color: self.visualisation.background_color,
             visualiser_settings: self.visualisation.visualiser_settings.clone(),
             active_device,
         }
@@ -248,6 +249,9 @@ impl GuiApp {
         }
         if let Some(band_gap) = patch.band_gap {
             updated.band_gap = band_gap;
+        }
+        if let Some(background_color) = patch.background_color {
+            updated.background_color = background_color;
         }
         if let Some(visualiser_patch) = &patch.visualiser_settings {
             updated.visualiser_settings.apply_patch(visualiser_patch)?;
@@ -442,6 +446,10 @@ impl GuiApp {
                                 _ => {}
                             }
                         };
+                        ui.end_row();
+
+                        ui.label("Background colour");
+                        ui.color_edit_button_srgba(&mut settings.background_color);
                         ui.end_row();
                     });
             });

@@ -539,6 +539,8 @@ impl Visualisation for SegmentedSpectrumBars {
         let (rect, _) = ui.allocate_exact_size(window_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
+        painter.rect_filled(rect, 0.0, settings.background_color);
+
         if bands.is_empty() || rect.width() <= 0.0 || rect.height() <= 0.0 {
             return;
         }

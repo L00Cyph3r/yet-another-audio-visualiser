@@ -211,6 +211,7 @@ mod tests {
             visualiser: VisualisationType::Waveform(WaveformSettings::default()),
             gain: 2.5,
             smoothing: 0.5,
+            background_color: egui::Color32::from_rgb(1, 2, 3),
             visualiser_settings: Default::default(),
             active_device: Some("Test Device".to_string()),
         };

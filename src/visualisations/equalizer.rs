@@ -125,6 +125,8 @@ impl Visualisation for Equalizer {
         // let (rect, _) = ui.allocate_exact_size(settings.window_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
+        painter.rect_filled(rect, 0.0, settings.background_color);
+
         if bands.is_empty() {
             return;
         }
