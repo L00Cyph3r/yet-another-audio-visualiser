@@ -5,6 +5,8 @@ use std::sync::Arc;
 
 use crate::profiling::{profile_function, profile_scope};
 
+const MIN_FREQ: f32 = 20.0;
+const MAX_FREQ: f32 = 20_000.0;
 pub const DEFAULT_FFT_SIZE: usize = 16384;
 const NUM_BANDS: usize = 48;
 
@@ -103,7 +105,6 @@ impl SpectrumAnalyzer {
             self.fft.process(&mut self.fft_buffer);
         }
 
-        let nyquist = self.sample_rate as f32 / 2.0;
         let bin_width = self.sample_rate as f32 / self.fft_size as f32;
 
         // Create logarithmically spaced frequency bands.
@@ -112,8 +113,8 @@ impl SpectrumAnalyzer {
             let t0 = band_index as f32 / self.bands_size as f32;
             let t1 = (band_index + 1) as f32 / self.bands_size as f32;
 
-            let min_frequency = 20.0 * (nyquist / 20.0).powf(t0);
-            let max_frequency = 20.0 * (nyquist / 20.0).powf(t1);
+            let min_frequency = MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(t0);
+            let max_frequency = MIN_FREQ * (MAX_FREQ / MIN_FREQ).powf(t1);
 
             let start_bin = (min_frequency / bin_width).floor() as usize;
             let end_bin = (max_frequency / bin_width).ceil() as usize;
