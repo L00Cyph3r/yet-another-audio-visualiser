@@ -40,6 +40,7 @@ pub struct VisualisationSettings {
     pub visualiser: VisualisationType,
     pub gain: f32,
     pub smoothing: f32,
+    pub frequency_resolution: f32,
     pub window_size: Vec2,
     pub band_gap: f32,
     pub background_color: egui::Color32,
@@ -52,6 +53,7 @@ impl Default for VisualisationSettings {
             visualiser: VisualisationType::Equalizer(EqualizerSettings::default()),
             gain: 1.0,
             smoothing: 0.0,
+            frequency_resolution: crate::analyzer::DEFAULT_FREQUENCY_RESOLUTION,
             window_size: Vec2::new(800.0, 80.0),
             band_gap: 0.0,
             background_color: egui::Color32::BLACK,
@@ -69,6 +71,7 @@ impl PartialEq for VisualisationSettings {
         self.visualiser == other.visualiser
             && self.gain == other.gain
             && self.smoothing == other.smoothing
+            && self.frequency_resolution == other.frequency_resolution
             && self.band_gap == other.band_gap
             && self.background_color == other.background_color
             && self.visualiser_settings == other.visualiser_settings
@@ -81,6 +84,7 @@ impl VisualisationSettings {
     pub fn sanitize(&mut self) {
         self.gain = self.gain.clamp(0.0, 100.0);
         self.smoothing = self.smoothing.clamp(0.0, 1.0);
+        self.frequency_resolution = self.frequency_resolution.clamp(1.0, 100.0);
         self.band_gap = self.band_gap.clamp(0.0, 256.0);
         self.visualiser_settings.sanitize();
     }

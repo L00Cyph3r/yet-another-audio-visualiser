@@ -7,8 +7,34 @@ use crate::profiling::{profile_function, profile_scope};
 
 const MIN_FREQ: f32 = 20.0;
 const MAX_FREQ: f32 = 20_000.0;
-pub const DEFAULT_FFT_SIZE: usize = 16384;
+pub const DEFAULT_FFT_SIZE: usize = 1024;
 const NUM_BANDS: usize = 48;
+
+/// Default frequency resolution (bin width) in Hz, matching the historical default of
+/// 44100 / 1024 ≈ 43 Hz.
+pub const DEFAULT_FREQUENCY_RESOLUTION: f32 = 43.0;
+
+/// Bounds for the FFT size derived from a frequency resolution. Powers of two keep `rustfft`
+/// on its fastest code path; the range keeps the visualisation responsive and the FFT cheap.
+const MIN_FFT_SIZE: usize = 256;
+const MAX_FFT_SIZE: usize = 65536;
+
+/// Converts a desired frequency resolution (bin width, in Hz) into an FFT size for the given
+/// sample rate. The raw size is `sample_rate / resolution_hz`, rounded up to the next power of
+/// two and clamped to `[MIN_FFT_SIZE, MAX_FFT_SIZE]`. A smaller resolution (finer bins) yields a
+/// larger FFT, which is more accurate but less responsive; a larger resolution yields a smaller,
+/// more responsive FFT.
+pub fn fft_size_for_resolution(sample_rate: u32, resolution_hz: f32) -> usize {
+    if !resolution_hz.is_finite() || resolution_hz <= 0.0 {
+        return DEFAULT_FFT_SIZE;
+    }
+    let raw = sample_rate as f32 / resolution_hz;
+    if !raw.is_finite() || raw <= 0.0 {
+        return DEFAULT_FFT_SIZE;
+    }
+    let size = (raw.ceil() as usize).next_power_of_two();
+    size.clamp(MIN_FFT_SIZE, MAX_FFT_SIZE)
+}
 
 pub struct SpectrumAnalyzerSettings {
     pub bands: usize,
@@ -155,5 +181,47 @@ impl SpectrumAnalyzer {
 
     pub fn bands(&self) -> &[f32] {
         &self.bands
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolution_maps_to_expected_fft_size() {
+        // 44100 / 43 ≈ 1025.6 -> next power of two is 2048.
+        assert_eq!(fft_size_for_resolution(44100, 43.0), 2048);
+        // Exact power-of-two ratio stays put: 48000 / 46.875 = 1024.
+        assert_eq!(fft_size_for_resolution(48000, 46.875), 1024);
+        // Coarser resolution -> smaller FFT.
+        assert_eq!(fft_size_for_resolution(44100, 44100.0 / 512.0), 512);
+    }
+
+    #[test]
+    fn fft_size_is_always_a_power_of_two() {
+        for resolution in [0.5_f32, 1.0, 7.3, 43.0, 100.0, 250.0, 500.0] {
+            let size = fft_size_for_resolution(44100, resolution);
+            assert!(size.is_power_of_two(), "{size} is not a power of two");
+        }
+    }
+
+    #[test]
+    fn fft_size_is_clamped_to_bounds() {
+        // Extremely fine resolution would want a huge FFT; clamp to the max.
+        assert_eq!(fft_size_for_resolution(44100, 0.0001), MAX_FFT_SIZE);
+        // Extremely coarse resolution would want a tiny FFT; clamp to the min.
+        assert_eq!(fft_size_for_resolution(44100, 1_000_000.0), MIN_FFT_SIZE);
+    }
+
+    #[test]
+    fn invalid_resolution_falls_back_to_default() {
+        assert_eq!(fft_size_for_resolution(44100, 0.0), DEFAULT_FFT_SIZE);
+        assert_eq!(fft_size_for_resolution(44100, -5.0), DEFAULT_FFT_SIZE);
+        assert_eq!(fft_size_for_resolution(44100, f32::NAN), DEFAULT_FFT_SIZE);
+        assert_eq!(
+            fft_size_for_resolution(44100, f32::INFINITY),
+            DEFAULT_FFT_SIZE
+        );
     }
 }

@@ -1,4 +1,4 @@
-use crate::analyzer::{DEFAULT_FFT_SIZE, SpectrumAnalyzer, SpectrumAnalyzerSettings};
+use crate::analyzer::{SpectrumAnalyzer, SpectrumAnalyzerSettings, fft_size_for_resolution};
 use crate::api::types::{AppCommand, DeviceDto, SettingsDto, SettingsPatch};
 use crate::capture::{AudioCapture, start_capture};
 use crate::gui::settings::{AppSettings, SettingsStore};
@@ -221,6 +221,7 @@ impl GuiApp {
             visualiser: self.visualisation.visualiser.clone(),
             gain: self.visualisation.gain,
             smoothing: self.visualisation.smoothing,
+            frequency_resolution: self.visualisation.frequency_resolution,
             background_color: self.visualisation.background_color,
             visualiser_settings: self.visualisation.visualiser_settings.clone(),
             active_device,
@@ -249,6 +250,12 @@ impl GuiApp {
         }
         if let Some(band_gap) = patch.band_gap {
             updated.band_gap = band_gap;
+        }
+        if let Some(frequency_resolution) = patch.frequency_resolution {
+            if frequency_resolution != updated.frequency_resolution {
+                self.restart_analysis = true;
+            }
+            updated.frequency_resolution = frequency_resolution;
         }
         if let Some(background_color) = patch.background_color {
             updated.background_color = background_color;
@@ -448,6 +455,25 @@ impl GuiApp {
                         };
                         ui.end_row();
 
+                        ui.label("Frequency resolution").on_hover_text(
+                            "FFT bin width in Hz. Lower values give finer frequency detail \
+                             (more accurate, less responsive); higher values are more responsive.",
+                        );
+                        if ui
+                            .add(
+                                egui::Slider::new(&mut settings.frequency_resolution, 1.0..=100.0)
+                                    .logarithmic(true)
+                                    .step_by(1.0)
+                                    .suffix(" Hz"),
+                            )
+                            .changed()
+                        {
+                            self.restart_analysis = true;
+                        }
+                        ui.label(format!("{:.2}ms", 1000.0 / settings.frequency_resolution))
+                            .on_hover_text("The effective time window of the analysis");
+                        ui.end_row();
+
                         ui.label("Background colour");
                         ui.color_edit_button_srgba(&mut settings.background_color);
                         ui.end_row();
@@ -544,7 +570,10 @@ impl eframe::App for GuiApp {
             if self.analyzer.is_none() && self.capture.is_some() {
                 self.analyzer = Some(SpectrumAnalyzer::new(SpectrumAnalyzerSettings {
                     sample_rate: self.capture.as_ref().unwrap().sample_rate,
-                    fft_size: DEFAULT_FFT_SIZE,
+                    fft_size: fft_size_for_resolution(
+                        self.capture.as_ref().unwrap().sample_rate,
+                        self.visualisation.frequency_resolution,
+                    ),
                     bands: self.visualisation.bands(),
                     ..SpectrumAnalyzerSettings::default()
                 }));
@@ -565,7 +594,10 @@ impl eframe::App for GuiApp {
             if self.restart_analysis && self.capture.is_some() && self.device.is_some() {
                 let analyzer = SpectrumAnalyzer::new(SpectrumAnalyzerSettings {
                     sample_rate: self.capture.as_ref().unwrap().sample_rate,
-                    fft_size: DEFAULT_FFT_SIZE,
+                    fft_size: fft_size_for_resolution(
+                        self.capture.as_ref().unwrap().sample_rate,
+                        self.visualisation.frequency_resolution,
+                    ),
                     bands: self.visualisation.bands(),
                     smoothing: self.visualisation.smoothing,
                     ..SpectrumAnalyzerSettings::default()
