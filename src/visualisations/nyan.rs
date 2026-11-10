@@ -3,9 +3,7 @@ use std::collections::VecDeque;
 use crate::profiling::{profile_function, profile_scope};
 use crate::visualisations::{Visualisation, VisualisationSettings, VisualisationType};
 use egui::ViewportCommand::InnerSize;
-use egui::{
-    Color32, ColorImage, Pos2, Rect, Stroke, TextureHandle, TextureOptions, Ui, Vec2,
-};
+use egui::{Color32, ColorImage, Pos2, Rect, Stroke, TextureHandle, TextureOptions, Ui, Vec2};
 use serde::{Deserialize, Serialize};
 
 const RAINBOW_BANDS: usize = 6;
@@ -582,7 +580,10 @@ enum SpriteSource {
 /// A GPU-ready decoded sprite, cached in the egui context.
 #[derive(Clone)]
 enum Sprite {
-    Static { texture: TextureHandle, size: [usize; 2] },
+    Static {
+        texture: TextureHandle,
+        size: [usize; 2],
+    },
     Animated {
         /// One texture per frame, parallel to `delays`.
         textures: Vec<TextureHandle>,
@@ -1193,7 +1194,10 @@ mod tests {
             speed: 1.0,
             amplitude: 10.0,
         };
-        assert_eq!(movement_offset_at(1.23, NyanMovement::None, &params), (0.0, 0.0));
+        assert_eq!(
+            movement_offset_at(1.23, NyanMovement::None, &params),
+            (0.0, 0.0)
+        );
     }
 
     #[test]
